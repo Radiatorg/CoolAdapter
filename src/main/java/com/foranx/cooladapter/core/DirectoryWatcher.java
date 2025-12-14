@@ -7,27 +7,13 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.FileHandler;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
 public class DirectoryWatcher {
 
     private static final Logger log = Logger.getLogger(DirectoryWatcher.class.getName());
-
-    static {
-        try {
-            FileHandler fh = new FileHandler(
-                    "/t24/T24/bnk/stud_log",
-                    true // append
-            );
-            fh.setFormatter(new SimpleFormatter());
-            log.addHandler(fh);
-            log.setUseParentHandlers(false); // НЕ писать в server.log
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
     private final Path rootPath;
 
     private WatchService watchService;
@@ -35,7 +21,6 @@ public class DirectoryWatcher {
 
     private final Map<WatchKey, Path> keys = new ConcurrentHashMap<>();
 
-    // защита от дублирующих событий
     private final Map<Path, Long> processedFiles = new ConcurrentHashMap<>();
     private static final long PROCESS_TTL_MS = 2000;
 
@@ -45,9 +30,6 @@ public class DirectoryWatcher {
         this.rootPath = Paths.get(directory).toAbsolutePath().normalize();
     }
 
-    // =========================
-    // START
-    // =========================
     public void start() throws IOException {
         if (!running.compareAndSet(false, true)) {
             return;
@@ -68,9 +50,6 @@ public class DirectoryWatcher {
         log.info(">>> DirectoryWatcher started.");
     }
 
-    // =========================
-    // STOP
-    // =========================
     public void stop() {
         if (!running.compareAndSet(true, false)) {
             return;
@@ -96,9 +75,6 @@ public class DirectoryWatcher {
         log.info(">>> DirectoryWatcher stopped.");
     }
 
-    // =========================
-    // WATCH LOGIC
-    // =========================
     private void registerAll(Path start) throws IOException {
         Files.walkFileTree(start, new SimpleFileVisitor<>() {
             @Override
@@ -149,7 +125,7 @@ public class DirectoryWatcher {
                             registerAll(fullPath);
                             scanNewFolder(fullPath);
                         } catch (IOException e) {
-                            e.printStackTrace();
+                            log.log(Level.WARNING, "Failed to register or scan new directory: " + fullPath, e);
                         }
                     } else {
                         handleFile(fullPath, "CREATE");
@@ -172,9 +148,6 @@ public class DirectoryWatcher {
         }
     }
 
-    // =========================
-    // FILE HANDLING
-    // =========================
     private void handleFile(Path file, String eventType) {
         long now = System.currentTimeMillis();
 
@@ -208,7 +181,7 @@ public class DirectoryWatcher {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                log.log(Level.SEVERE, "Failed to scan folder: " + folder, e);
             }
         });
     }

@@ -1,14 +1,17 @@
 package com.foranx.cooladapter.core;
 
-import com.foranx.cooladapter.DirectoryWatcher;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.annotation.WebListener;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 @WebListener
 public class AppStartupListener implements ServletContextListener {
 
     private DirectoryWatcher watcher;
+    private static final Logger log = Logger.getLogger(AppStartupListener.class.getName());
 
     @Override
     public void contextInitialized(ServletContextEvent sce) {
@@ -24,9 +27,12 @@ public class AppStartupListener implements ServletContextListener {
     @Override
     public void contextDestroyed(ServletContextEvent sce) {
         try {
-            watcher.stop();
+            if (watcher != null) {
+                watcher.stop();
+                log.info("DirectoryWatcher stopped successfully.");
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.log(Level.WARNING, "Failed to stop DirectoryWatcher", e);
         }
     }
 }
