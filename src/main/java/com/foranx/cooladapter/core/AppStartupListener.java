@@ -1,5 +1,6 @@
 package com.foranx.cooladapter.core;
 
+import com.foranx.cooladapter.config.AppConfiguration;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.annotation.WebListener;
@@ -16,8 +17,10 @@ public class AppStartupListener implements ServletContextListener {
     @Override
     public void contextInitialized(ServletContextEvent sce) {
         try {
-            String dir = "/t24/T24/bnk/stud";
-            watcher = new DirectoryWatcher(dir);
+            AppConfiguration config = new AppConfiguration();
+            config.validate();
+
+            watcher = new DirectoryWatcher(config.getDirectory());
             watcher.start();
         } catch (Exception e) {
             throw new RuntimeException("Failed to start DirectoryWatcher", e);

@@ -5,12 +5,12 @@ import java.util.logging.*;
 public class LoggingConfiguration {
     private LoggingConfiguration() {}
 
-    public static void init() {
+    public static void init(AppConfiguration config) {
         try {
             LogManager.getLogManager().reset();
             Logger root = Logger.getLogger("");
             root.setLevel(Level.INFO);
-            FileHandler fh = new FileHandler("/t24/T24/bnk/stud_log", true);
+            FileHandler fh = new FileHandler(config.getLogFolder(), true);
             fh.setFormatter(new SimpleFormatter());
             root.addHandler(fh);
         } catch (IOException e) {
