@@ -1,115 +1,83 @@
 package com.foranx.cooladapter.config;
 
-import jakarta.annotation.PostConstruct;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.logging.Logger;
 
 public class AppConfiguration {
+
     private List<String> supportedExtensions = List.of("csv", "txt");
-    private String logFolder = "INPUTT/123456";
+    private String logFolder;
     private String fallbackLogName = "INFO";
-    private String directory = "~/";
+    private String directory = "/t24/T24/bnk/stud";
     private String activeMqUrl = "tcp://192.168.38.3:5445";
     private String queue = "java:/queue/t24DSPPACKAGERQueue";
+    private String credentials = "admin/1234";
+    private String logLevel = "DEBUG";
+    private static final Logger log = Logger.getLogger(AppConfiguration.class.getName());
 
-    private String credentials;
-    private String logLevel;
-
-    public List<String> getSupportedExtensions() {
-        return supportedExtensions;
+    public AppConfiguration() {
     }
 
-    public void setSupportedExtensions(List<String> supportedExtensions) {
-        this.supportedExtensions = supportedExtensions;
-    }
+    public void init(InputStream input) {
+        Properties props = new Properties();
 
-    public String getLogFolder() {
-        return logFolder;
-    }
-
-    public void setLogFolder(String logFolder) {
-        this.logFolder = logFolder;
-    }
-
-    public String getFallbackLogName() {
-        return fallbackLogName;
-    }
-
-    public void setFallbackLogName(String fallbackLogName) {
-        this.fallbackLogName = fallbackLogName;
-    }
-
-    public String getCredentials() {
-        return credentials;
-    }
-
-    public void setCredentials(String credentials) {
-        this.credentials = credentials;
-    }
-
-    public String getLogLevel() {
-        return logLevel;
-    }
-
-    public void setLogLevel(String logLevel) {
-        this.logLevel = logLevel;
-    }
-
-    public String getDirectory() {
-        return directory;
-    }
-
-    public void setDirectory(String directory) {
-        this.directory = directory;
-    }
-
-    public String getActiveMqUrl() {
-        return activeMqUrl;
-    }
-
-    public void setActiveMqUrl(String activeMqUrl) {
-        this.activeMqUrl = activeMqUrl;
-    }
-
-    public String getQueue() {
-        return queue;
-    }
-
-    public void setQueue(String queue) {
-        this.queue = queue;
-    }
-
-    @PostConstruct
-    public void validate() {
         try {
-
-            if (directory == null || directory.isBlank() || !Files.isDirectory(Paths.get(directory))) {
-                throw new IllegalStateException(String.format("Directory %s does not exist", directory));
+            if (input == null) {
+                throw new IllegalStateException("application.properties not found via ServletContext");
             }
+            props.load(input);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load application.properties", e);
+        }
 
-            if (logFolder == null || logFolder.isBlank() || !Files.isDirectory(Paths.get(logFolder))) {
-                throw new IllegalStateException(String.format("Directory %s does not exist", logFolder));
-            }
+        supportedExtensions = Optional.ofNullable(props.getProperty("supportedExtensions"))
+                .map(s -> Arrays.asList(s.split(",")))
+                .orElse(supportedExtensions);
 
-            if (fallbackLogName == null || fallbackLogName.isBlank()) {
-                throw new IllegalStateException("Missing required parameter: fallbackLogName");
-            }
+        logFolder = props.getProperty("logFolder", logFolder);
+        fallbackLogName = props.getProperty("fallbackLogName", fallbackLogName);
+        directory = props.getProperty("directory", directory);
+        activeMqUrl = props.getProperty("activeMqUrl", activeMqUrl);
+        queue = props.getProperty("queue", queue);
+        credentials = props.getProperty("credentials", credentials);
+        logLevel = props.getProperty("logLevel", logLevel);
+
+        validate();
+    }
 
 
-            if (activeMqUrl == null || activeMqUrl.isBlank()) {
-                throw new IllegalStateException("ActiveMQ URL is required");
-            }
 
-            if (queue == null || queue.isBlank()) {
-                throw new IllegalStateException("Queue name is required");
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Configuration validation failed: " + e.getMessage(), e);
+    public void validate() {  // package-private
+        if (directory == null || !Files.isDirectory(Paths.get(directory))) {
+            throw new IllegalStateException("Directory " + directory + " does not exist");
+        }
+        if (logFolder == null || !Files.exists(Paths.get(logFolder)) || !Files.isRegularFile(Paths.get(logFolder))) {
+            throw new IllegalStateException("Log file " + logFolder + " does not exist");
+        }
+        if (fallbackLogName == null || fallbackLogName.isBlank()) {
+            throw new IllegalStateException("Missing fallbackLogName");
+        }
+        if (activeMqUrl == null || activeMqUrl.isBlank()) {
+            throw new IllegalStateException("ActiveMQ URL is required");
+        }
+        if (queue == null || queue.isBlank()) {
+            throw new IllegalStateException("Queue name is required");
         }
     }
+
+    // Геттеры
+    public List<String> getSupportedExtensions() { return supportedExtensions; }
+    public String getLogFolder() { return logFolder; }
+    public String getFallbackLogName() { return fallbackLogName; }
+    public String getCredentials() { return credentials; }
+    public String getLogLevel() { return logLevel; }
+    public String getDirectory() { return directory; }
+    public String getActiveMqUrl() { return activeMqUrl; }
+    public String getQueue() { return queue; }
 
     public Map<String, Object> getAll() {
         Map<String, Object> map = new LinkedHashMap<>();
@@ -122,5 +90,24 @@ public class AppConfiguration {
         map.put("activeMqUrl", activeMqUrl);
         map.put("queue", queue);
         return map;
+    }
+
+    public void logConfiguration() {
+        log.info("=== Application configuration loaded ===");
+        log.info("supportedExtensions = " + supportedExtensions);
+        log.info("logFolder           = " + logFolder);
+        log.info("fallbackLogName     = " + fallbackLogName);
+        log.info("directory           = " + directory);
+        log.info("activeMqUrl         = " + activeMqUrl);
+        log.info("queue               = " + queue);
+        log.info("logLevel            = " + logLevel);
+        log.info("credentials         = " + mask(credentials));
+        log.info("========================================");
+    }
+
+    private String mask(String value) {
+        if (value == null) return null;
+        int idx = value.indexOf('/');
+        return idx > 0 ? value.substring(0, idx) + "/******" : "******";
     }
 }
