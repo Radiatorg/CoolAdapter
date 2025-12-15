@@ -3,6 +3,7 @@ package com.foranx.cooladapter.config;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.logging.Logger;
@@ -11,12 +12,12 @@ public class AppConfiguration {
 
     private List<String> supportedExtensions = List.of("csv", "txt");
     private String logFolder;
-    private String fallbackLogName = "INFO";
-    private String directory = "/t24/T24/bnk/stud";
+    private String fallbackLogName;
+    private String credentials = "INPUTT/123456";
+    private String logLevel = "INFO";
+    private String directory = "~/S_FILE_UPLOADER";
     private String activeMqUrl = "tcp://192.168.38.3:5445";
     private String queue = "java:/queue/t24DSPPACKAGERQueue";
-    private String credentials = "admin/1234";
-    private String logLevel = "DEBUG";
     private static final Logger log = Logger.getLogger(AppConfiguration.class.getName());
 
     public AppConfiguration() {
@@ -49,25 +50,32 @@ public class AppConfiguration {
         validate();
     }
 
-
-
-    public void validate() {  // package-private
+    public void validate() {
         if (directory == null || !Files.isDirectory(Paths.get(directory))) {
             throw new IllegalStateException("Directory " + directory + " does not exist");
         }
-        if (logFolder == null || !Files.exists(Paths.get(logFolder)) || !Files.isRegularFile(Paths.get(logFolder))) {
-            throw new IllegalStateException("Log file " + logFolder + " does not exist");
+
+        if (logFolder == null || logFolder.isBlank()) {
+            throw new IllegalStateException("logFolder is not set");
         }
+        Path logPath = Paths.get(logFolder);
+        Path parentDir = logPath.getParent();
+        if (parentDir == null || !Files.isDirectory(parentDir)) {
+            throw new IllegalStateException("Log directory does not exist: " + parentDir);
+        }
+
         if (fallbackLogName == null || fallbackLogName.isBlank()) {
             throw new IllegalStateException("Missing fallbackLogName");
         }
-        if (activeMqUrl == null || activeMqUrl.isBlank()) {
-            throw new IllegalStateException("ActiveMQ URL is required");
-        }
-        if (queue == null || queue.isBlank()) {
-            throw new IllegalStateException("Queue name is required");
+        Path fallbackPath = logPath.getParent().resolve(fallbackLogName);
+        Path fallbackParent = fallbackPath.getParent();
+        if (fallbackParent == null || !Files.isDirectory(fallbackParent)) {
+            throw new IllegalStateException(
+                    "Fallback log directory does not exist: " + fallbackParent
+            );
         }
     }
+
 
     // Геттеры
     public List<String> getSupportedExtensions() { return supportedExtensions; }
