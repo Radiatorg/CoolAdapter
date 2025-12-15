@@ -15,7 +15,6 @@ public class AppStartupListener implements ServletContextListener {
 
     private DirectoryWatcher watcher;
     private static final Logger log = Logger.getLogger(AppStartupListener.class.getName());
-
     @Override
     public void contextInitialized(ServletContextEvent sce) {
         try {
@@ -24,7 +23,7 @@ public class AppStartupListener implements ServletContextListener {
 
             AppConfiguration config = new AppConfiguration();
             config.init(in);
-            LoggingConfiguration.init(config.getLogFolder());
+            LoggingConfiguration.init(config.getLogFolder(), config.getLogLevel());
             config.logConfiguration();
 
             watcher = new DirectoryWatcher(config.getDirectory());
