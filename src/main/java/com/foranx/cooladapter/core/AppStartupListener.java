@@ -27,7 +27,7 @@ public class AppStartupListener implements ServletContextListener {
             LoggingConfiguration.init(config.getLogFolder());
             config.logConfiguration();
 
-            watcher = new DirectoryWatcher(config.getDirectory());
+            watcher = new DirectoryWatcher(config);
             watcher.start();
         } catch (Exception e) {
             throw new RuntimeException("Failed to start DirectoryWatcher", e);

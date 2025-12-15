@@ -1,15 +1,15 @@
 package com.foranx.cooladapter.core;
 
+import com.foranx.cooladapter.config.AppConfiguration;
+
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.FileHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
 
 public class DirectoryWatcher {
 
@@ -18,6 +18,7 @@ public class DirectoryWatcher {
 
     private WatchService watchService;
     private ExecutorService executor;
+    private final FileProcessor processor;
 
     private final Map<WatchKey, Path> keys = new ConcurrentHashMap<>();
 
@@ -26,8 +27,9 @@ public class DirectoryWatcher {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    public DirectoryWatcher(String directory) {
-        this.rootPath = Paths.get(directory).toAbsolutePath().normalize();
+    public DirectoryWatcher(AppConfiguration config) {
+        this.rootPath = Paths.get(config.getDirectory()).toAbsolutePath().normalize();
+        this.processor = new FileProcessor(config);
     }
 
     public void start() throws IOException {
@@ -80,12 +82,31 @@ public class DirectoryWatcher {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                 registerDirectory(dir);
+
+                scanExistingFiles(dir);
+
                 return FileVisitResult.CONTINUE;
             }
         });
     }
 
+    private void scanExistingFiles(Path dir) {
+        executor.submit(() -> {
+            try {
+                Files.list(dir)
+                        .filter(Files::isRegularFile)
+                        .forEach(file -> handleFile(file, "STARTUP_SCAN"));
+            } catch (IOException e) {
+                log.log(Level.WARNING, "Failed to scan existing files in: " + dir, e);
+            }
+        });
+    }
+
     private void registerDirectory(Path dir) throws IOException {
+        if (dir.getFileName().toString().equals(".processed")) {
+            log.info(">>> Пропускаем каталог .processed: " + dir);
+            return;
+        }
         WatchKey key = dir.register(
                 watchService,
                 StandardWatchEventKinds.ENTRY_CREATE,
@@ -156,11 +177,20 @@ public class DirectoryWatcher {
             return;
         }
 
-        log.info(">>> FILE EVENT [" + eventType + "]: " + file);
         processedFiles.put(file, now);
 
         executor.submit(() -> {
             try {
+                // Process the file
+                boolean processed = processor.processFile(file);
+
+                // Special case: if it's a .properties file, rescan folder
+                if (processed && file.getFileName().toString().endsWith(".properties")) {
+                    Path parent = file.getParent();
+                    log.info(">>> .properties created, rescanning folder: " + parent);
+                    scanExistingFiles(parent);
+                }
+
                 Thread.sleep(PROCESS_TTL_MS);
                 processedFiles.remove(file);
             } catch (InterruptedException ignored) {
@@ -174,6 +204,14 @@ public class DirectoryWatcher {
             try {
                 Thread.sleep(100);
                 Files.walkFileTree(folder, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                        if (dir.getFileName().toString().equals(".processed")) {
+                            return FileVisitResult.SKIP_SUBTREE; // пропускаем
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         handleFile(file, "CREATE_SCAN");
