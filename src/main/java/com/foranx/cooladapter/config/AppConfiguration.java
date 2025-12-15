@@ -1,11 +1,11 @@
 package com.foranx.cooladapter.config;
 
-import jakarta.annotation.PostConstruct;
-
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.logging.Logger;
 
 public class AppConfiguration {
 
@@ -17,27 +17,21 @@ public class AppConfiguration {
     private String queue = "java:/queue/t24DSPPACKAGERQueue";
     private String credentials = "admin/1234";
     private String logLevel = "DEBUG";
+    private static final Logger log = Logger.getLogger(AppConfiguration.class.getName());
 
     public AppConfiguration() {
-        // Конструктор пустой — загрузка происходит в @PostConstruct
     }
 
-    public void init() {
+    public void init(InputStream input) {
         Properties props = new Properties();
 
-        try (var input = AppConfiguration.class
-                .getClassLoader()
-                .getResourceAsStream("application.properties")) {
-
-            if (input != null) {
-                System.out.println("✅ application.properties loaded from classpath");
-                props.load(input);
-            } else {
-                System.out.println("⚠️ application.properties not found in classpath");
+        try {
+            if (input == null) {
+                throw new IllegalStateException("application.properties not found via ServletContext");
             }
-
+            props.load(input);
         } catch (IOException e) {
-            throw new RuntimeException("Ошибка при загрузке application.properties", e);
+            throw new RuntimeException("Failed to load application.properties", e);
         }
 
         supportedExtensions = Optional.ofNullable(props.getProperty("supportedExtensions"))
@@ -54,6 +48,8 @@ public class AppConfiguration {
 
         validate();
     }
+
+
 
     public void validate() {  // package-private
         if (directory == null || !Files.isDirectory(Paths.get(directory))) {
@@ -94,5 +90,24 @@ public class AppConfiguration {
         map.put("activeMqUrl", activeMqUrl);
         map.put("queue", queue);
         return map;
+    }
+
+    public void logConfiguration() {
+        log.info("=== Application configuration loaded ===");
+        log.info("supportedExtensions = " + supportedExtensions);
+        log.info("logFolder           = " + logFolder);
+        log.info("fallbackLogName     = " + fallbackLogName);
+        log.info("directory           = " + directory);
+        log.info("activeMqUrl         = " + activeMqUrl);
+        log.info("queue               = " + queue);
+        log.info("logLevel            = " + logLevel);
+        log.info("credentials         = " + mask(credentials));
+        log.info("========================================");
+    }
+
+    private String mask(String value) {
+        if (value == null) return null;
+        int idx = value.indexOf('/');
+        return idx > 0 ? value.substring(0, idx) + "/******" : "******";
     }
 }
