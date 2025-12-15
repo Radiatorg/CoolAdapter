@@ -1,6 +1,7 @@
 package com.foranx.cooladapter.core;
 
 import com.foranx.cooladapter.config.AppConfiguration;
+import com.foranx.cooladapter.config.LoggingConfiguration;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.annotation.WebListener;
@@ -18,7 +19,8 @@ public class AppStartupListener implements ServletContextListener {
     public void contextInitialized(ServletContextEvent sce) {
         try {
             AppConfiguration config = new AppConfiguration();
-            config.validate();
+            config.init();
+            LoggingConfiguration.init(config);
 
             watcher = new DirectoryWatcher(config.getDirectory());
             watcher.start();
