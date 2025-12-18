@@ -22,15 +22,20 @@ public class AppStartupListener implements ServletContextListener {
         try {
             log.info("Initializing CoolAdapter...");
 
+            // 1. Загрузка конфигурации
             InputStream in = sce.getServletContext()
                     .getResourceAsStream("/WEB-INF/classes/application.properties");
             AppConfig config = AppConfig.load(in);
 
+            // 2. Настройка логирования
             LoggingUtil.configure(config.getLogFolder());
             config.logConfiguration();
 
+            // 3. Создание сервиса обработки
             FileService fileService = new FileService(config);
 
+            // 4. Запуск Watcher'а
+            // Передаем метод fileService::processFile как callback
             watcher = new DirectoryWatcher(config, fileService::processFile);
             watcher.start();
 
