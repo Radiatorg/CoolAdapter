@@ -2,10 +2,13 @@ package com.foranx.cooladapter.core;
 
 import com.foranx.cooladapter.config.AppConfiguration;
 import com.foranx.cooladapter.config.FolderConfiguration;
+import com.foranx.cooladapter.parser.FileParser;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -50,7 +53,6 @@ public class FileProcessor {
                     log.info(">>> [Local Config Loaded] " + folderConfig.toString());
                 } catch (Exception e) {
                     log.log(Level.SEVERE, ">>> Invalid configuration in " + propertiesFile, e);
-                    // Если конфигурация невалидна (например, нет tableVersion), прерываем обработку этого файла
                     return false;
                 }
             }
@@ -59,25 +61,48 @@ public class FileProcessor {
             Files.createDirectories(processedDir);
 
             if (!file.getFileName().toString().endsWith(".properties")) {
+
+                log.info(">>> START PARSING: " + file.getFileName());
+
+                try {
+                    Map<String, List<Object>> parsedData = FileParser.parse(file, folderConfig);
+                    printParsedData(parsedData);
+
+                } catch (Exception e) {
+                    log.log(Level.SEVERE, ">>> Parsing failed for file: " + file, e);
+                }
+
+                log.info(">>> END PARSING");
+
                 Path processedFile = processedDir.resolve(file.getFileName());
-
                 if (!Files.exists(processedFile) || Files.mismatch(file, processedFile) != -1) {
-                    log.info(">>> Processing file: " + file + " (Size: " + Files.size(file) + " bytes)");
-
                     Files.copy(file, processedFile, StandardCopyOption.REPLACE_EXISTING);
-
                     log.info(">>> File copied to .processed: " + processedFile);
                 } else {
                     log.info(">>> File already processed and unchanged: " + file);
                 }
             }
 
-
             return true;
         } catch (IOException e) {
             log.log(Level.WARNING, "Error processing file: " + file, e);
             return false;
         }
+    }
+
+    private void printParsedData(Map<String, List<Object>> data) {
+        log.info("============== PARSED DATA RESULT ==============");
+        if (data.isEmpty()) {
+            log.info("(Empty Result)");
+        } else {
+            data.forEach((header, values) -> {
+                StringBuilder sb = new StringBuilder();
+                sb.append(String.format("COLUMN [%-15s] : ", header));
+                sb.append(values.toString()); // List.toString() выведет [val1, val2, ...]
+                log.info(sb.toString());
+            });
+        }
+        log.info("================================================");
     }
 
     private boolean waitForFileStability(Path file) {
