@@ -104,7 +104,7 @@ public class DirectoryWatcher {
 
     private void registerDirectory(Path dir) throws IOException {
         if (dir.getFileName().toString().equals(".processed")) {
-            log.info(">>> Пропускаем каталог .processed: " + dir);
+            log.info(">>> Skip directory .processed: " + dir);
             return;
         }
         WatchKey key = dir.register(
@@ -181,10 +181,8 @@ public class DirectoryWatcher {
 
         executor.submit(() -> {
             try {
-                // Process the file
                 boolean processed = processor.processFile(file);
 
-                // Special case: if it's a .properties file, rescan folder
                 if (processed && file.getFileName().toString().endsWith(".properties")) {
                     Path parent = file.getParent();
                     log.info(">>> .properties created, rescanning folder: " + parent);

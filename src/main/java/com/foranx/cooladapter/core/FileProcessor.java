@@ -1,11 +1,13 @@
 package com.foranx.cooladapter.core;
 
 import com.foranx.cooladapter.config.AppConfiguration;
+import com.foranx.cooladapter.config.FolderConfiguration;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -19,6 +21,11 @@ public class FileProcessor {
     }
 
     public boolean processFile(Path file) {
+        if (!waitForFileStability(file)) {
+            log.warning(">>> File skipped or unstable (locked/empty): " + file);
+            return false;
+        }
+
         try {
             if (!Files.isRegularFile(file)) return false;
 
@@ -36,17 +43,16 @@ public class FileProcessor {
                         .orElse(null);
             }
 
-            if (!file.getFileName().toString().endsWith(".properties") && propertiesFile == null) {
-                log.info(">>> Skipping file " + file + ": no .properties in folder");
-                return false;
-            }
-
+            FolderConfiguration folderConfig = null;
             if (propertiesFile != null) {
-                Properties props = new Properties();
-                try (InputStream in = Files.newInputStream(propertiesFile)) {
-                    props.load(in);
+                try {
+                    folderConfig = FolderConfiguration.load(propertiesFile);
+                    log.info(">>> [Local Config Loaded] " + folderConfig.toString());
+                } catch (Exception e) {
+                    log.log(Level.SEVERE, ">>> Invalid configuration in " + propertiesFile, e);
+                    // Если конфигурация невалидна (например, нет tableVersion), прерываем обработку этого файла
+                    return false;
                 }
-                log.info(">>> Properties from " + propertiesFile + ": " + props);
             }
 
             Path processedDir = parentDir.resolve(".processed");
@@ -54,20 +60,56 @@ public class FileProcessor {
 
             if (!file.getFileName().toString().endsWith(".properties")) {
                 Path processedFile = processedDir.resolve(file.getFileName());
+
                 if (!Files.exists(processedFile) || Files.mismatch(file, processedFile) != -1) {
-                    log.info(">>> Processing file: " + file);
+                    log.info(">>> Processing file: " + file + " (Size: " + Files.size(file) + " bytes)");
+
                     Files.copy(file, processedFile, StandardCopyOption.REPLACE_EXISTING);
+
                     log.info(">>> File copied to .processed: " + processedFile);
                 } else {
                     log.info(">>> File already processed and unchanged: " + file);
                 }
             }
 
+
             return true;
         } catch (IOException e) {
             log.log(Level.WARNING, "Error processing file: " + file, e);
             return false;
         }
+    }
+
+    private boolean waitForFileStability(Path file) {
+        long lastSize = -1;
+        int attempts = 0;
+        int maxAttempts = 10;
+
+        while (attempts < maxAttempts) {
+            try {
+                if (!Files.exists(file) || Files.isDirectory(file)) {
+                    return false;
+                }
+
+                long currentSize = Files.size(file);
+
+                if (currentSize > 0 && currentSize == lastSize) {
+                    return true;
+                }
+
+                lastSize = currentSize;
+                attempts++;
+
+                TimeUnit.MILLISECONDS.sleep(500);
+
+            } catch (IOException | InterruptedException e) {
+                log.warning("Wait interrupted or IO error: " + e.getMessage());
+                return false;
+            }
+        }
+
+        log.warning("Timeout waiting for file stability: " + file);
+        return false;
     }
 
 
