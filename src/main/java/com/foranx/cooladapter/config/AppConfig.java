@@ -20,6 +20,7 @@ public class AppConfig {
     private String directory = "~/S_FILE_UPLOADER";
     private String activeMqUrl = "tcp://192.168.38.3:5445";
     private String queue = "java:/queue/t24DSPPACKAGERQueue";
+    private boolean checkHashBeforeCopy = true;
 
     private AppConfig() {}
 
@@ -54,6 +55,10 @@ public class AppConfig {
         this.queue = props.getProperty("queue", queue);
         this.credentials = props.getProperty("credentials", credentials);
         this.logLevel = props.getProperty("logLevel", logLevel);
+        String checkHash = props.getProperty("checkHashBeforeCopy");
+        if (checkHash != null) {
+            this.checkHashBeforeCopy = Boolean.parseBoolean(checkHash);
+        }
     }
 
     private void validate() {
@@ -80,6 +85,7 @@ public class AppConfig {
         log.info("directory           = " + directory);
         log.info("activeMqUrl         = " + activeMqUrl);
         log.info("credentials         = " + mask(credentials));
+        log.info("checkHashBeforeCopy = " + checkHashBeforeCopy);
         log.info("========================================");
     }
 
@@ -98,4 +104,5 @@ public class AppConfig {
     public String getQueue() { return queue; }
     public String getCredentials() { return credentials; }
     public String getLogLevel() { return logLevel; }
+    public boolean isCheckHashBeforeCopy() { return checkHashBeforeCopy; }
 }
