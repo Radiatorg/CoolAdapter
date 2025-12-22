@@ -9,7 +9,7 @@ public class LoggingUtil {
 
     private LoggingUtil() {}
 
-    public static void configure(String logFilePath) {
+    public static void configure(String logFilePath, String logLevelStr) {
         try {
             if (logFilePath == null || logFilePath.isBlank()) {
                 throw new IllegalArgumentException("logFilePath is null or blank");
@@ -21,9 +21,18 @@ public class LoggingUtil {
                 Files.createDirectories(parent);
             }
 
+            Level level = Level.INFO;
+            if (logLevelStr != null && !logLevelStr.isBlank()) {
+                try {
+                    level = Level.parse(logLevelStr.toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    System.err.println("Invalid logLevel in properties: " + logLevelStr + ". Using default INFO.");
+                }
+            }
+
             LogManager.getLogManager().reset();
             Logger root = Logger.getLogger("");
-            root.setLevel(Level.INFO);
+            root.setLevel(level);
 
             FileHandler fh = new FileHandler(logPath.toString(), true);
             fh.setFormatter(new SimpleFormatter());

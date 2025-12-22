@@ -6,12 +6,15 @@ import com.foranx.cooladapter.config.FolderConfig;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 public class FileService {
 
@@ -46,13 +49,12 @@ public class FileService {
                     printParsedData(data);
                 } catch (Exception e) {
                     log.log(Level.SEVERE, ">>> Parsing failed for file: " + file, e);
-                    // Решаем, прерывать ли обработку или все равно перемещать файл
                 }
             } else {
                 log.warning(">>> No local .properties found for folder: " + file.getParent() + ". Skipping parsing.");
             }
 
-            moveToProcessed(file);
+            copyToProcessed(file);
 
             log.info(">>> END PROCESSING: " + file.getFileName());
 
@@ -73,26 +75,44 @@ public class FileService {
     }
 
     private FolderConfig loadFolderConfig(Path folder) {
-        try (var stream = Files.list(folder)) {
-            Path propertiesFile = stream
-                    .filter(p -> p.toString().endsWith(CONFIG_EXT))
-                    .findFirst()
-                    .orElse(null);
+        List<Path> propFiles;
 
-            if (propertiesFile != null) {
-                Properties props = new Properties();
-                try (InputStream in = Files.newInputStream(propertiesFile)) {
-                    props.load(in);
-                }
-                return FolderConfig.fromProperties(props, folder.getFileName().toString());
-            }
+        try (var stream = Files.list(folder)) {
+            propFiles = stream
+                    .filter(p -> p.toString().endsWith(CONFIG_EXT))
+                    .toList();
         } catch (IOException e) {
-            log.warning("Failed to search/load properties in " + folder);
+            log.warning("Failed to search properties in " + folder);
+            return null;
         }
-        return null;
+
+        if (propFiles.isEmpty()) {
+            return null;
+        }
+
+        if (propFiles.size() > 1) {
+            String fileNames = propFiles.stream()
+                    .map(p -> p.getFileName().toString())
+                    .collect(Collectors.joining(", "));
+
+            throw new IllegalStateException(
+                    String.format("Ambiguous configuration: Found %d .properties files in folder '%s': [%s]. Allowed only one.",
+                            propFiles.size(), folder, fileNames)
+            );
+        }
+
+        Path propertiesFile = propFiles.getFirst();
+        Properties props = new Properties();
+        try (InputStream in = Files.newInputStream(propertiesFile)) {
+            props.load(in);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load properties file: " + propertiesFile, e);
+        }
+
+        return FolderConfig.fromProperties(props, folder.getFileName().toString());
     }
 
-    private void moveToProcessed(Path file) throws IOException {
+    private void copyToProcessed(Path file) throws IOException {
         Path processedDir = file.getParent().resolve(PROCESSED_DIR);
         if (!Files.exists(processedDir)) {
             Files.createDirectories(processedDir);
@@ -100,9 +120,44 @@ public class FileService {
 
         Path target = processedDir.resolve(file.getFileName());
 
-        Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
-        log.info(">>> File moved to: " + target);
+        if (Files.exists(target)) {
+            try {
+                String sourceHash = calculateFileHash(file);
+                String targetHash = calculateFileHash(target);
+
+                if (sourceHash.equals(targetHash)) {
+                    log.info(">>> File already exists in .processed with SAME CONTENT (Hash match). Skipping copy.");
+                    return;
+                } else {
+                    log.warning(">>> File in .processed differs from source. Updating backup copy.");
+                }
+            } catch (NoSuchAlgorithmException e) {
+                log.log(Level.SEVERE, "Hashing algorithm error", e);
+            }
+        }
+
+        Files.copy(file, target, StandardCopyOption.REPLACE_EXISTING);
+        log.info(">>> File COPIED to: " + target);
     }
+
+    private String calculateFileHash(Path path) throws IOException, NoSuchAlgorithmException {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream fis = Files.newInputStream(path)) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                digest.update(buffer, 0, bytesRead);
+            }
+        }
+        byte[] hashBytes = digest.digest();
+
+        StringBuilder sb = new StringBuilder();
+        for (byte b : hashBytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
 
     private boolean waitForStability(Path file) {
         long lastSize = -1;
