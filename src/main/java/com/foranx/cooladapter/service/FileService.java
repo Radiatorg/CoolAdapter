@@ -120,7 +120,7 @@ public class FileService {
 
         Path target = processedDir.resolve(file.getFileName());
 
-        if (Files.exists(target)) {
+        if (appConfig.isCheckHashBeforeCopy() && Files.exists(target)) {
             try {
                 String sourceHash = calculateFileHash(file);
                 String targetHash = calculateFileHash(target);
