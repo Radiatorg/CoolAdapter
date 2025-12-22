@@ -97,4 +97,5 @@ public class AppConfig {
     public String getActiveMqUrl() { return activeMqUrl; }
     public String getQueue() { return queue; }
     public String getCredentials() { return credentials; }
+    public String getLogLevel() { return logLevel; }
 }
