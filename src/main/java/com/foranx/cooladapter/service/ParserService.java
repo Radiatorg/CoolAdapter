@@ -1,6 +1,8 @@
 package com.foranx.cooladapter.service;
 
 import com.foranx.cooladapter.config.FolderConfig;
+import com.foranx.cooladapter.handler.HandlerFactory;
+import com.foranx.cooladapter.handler.ValueHandler;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -70,6 +72,24 @@ public class ParserService {
             }
         }
 
+        applyHandlers(columns, config);
+
         return columns;
+    }
+
+
+    private static void applyHandlers(Map<String, List<Object>> columns, FolderConfig config) {
+        Map<String, String> handlerConfigs = config.getHandlers();
+
+        columns.forEach((header, values) -> {
+            String handlerClassName = handlerConfigs.get("handler." + header);
+
+            if (handlerClassName != null) {
+                ValueHandler handler = HandlerFactory.getHandler(handlerClassName);
+                if (handler != null) {
+                    values.replaceAll(handler::handle);
+                }
+            }
+        });
     }
 }
