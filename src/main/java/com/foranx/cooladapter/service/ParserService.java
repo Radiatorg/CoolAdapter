@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class ParserService {
 
@@ -44,28 +45,35 @@ public class ParserService {
             columns.put(header, new ArrayList<>());
         }
 
-        String valDelim = config.getValueDelimiter();
-        boolean hasValueDelimiter = valDelim != null && !valDelim.isEmpty();
-        String valDelimRegex = hasValueDelimiter ? Pattern.quote(valDelim) : null;
-        String fieldDelimRegex = Pattern.quote(config.getFieldDelimiter());
+        String multiDelim = config.getMultiValueDelimiter();
+        String subDelim = config.getSubValueDelimiter();
+        boolean hasMultiDelim = multiDelim != null && !multiDelim.isEmpty();
+        boolean hasSubDelim = subDelim != null && !subDelim.isEmpty();
 
         for (int i = dataStartIndex; i < records.length; i++) {
             String record = records[i];
             if (record.trim().isEmpty()) continue;
 
-            String[] fields = record.split(fieldDelimRegex, -1);
+            String[] fields = record.split(Pattern.quote(config.getFieldDelimiter()), -1);
 
             for (int colIndex = 0; colIndex < headers.size(); colIndex++) {
-                if (colIndex >= headers.size()) break;
-
                 String headerName = headers.get(colIndex);
                 List<Object> columnData = columns.get(headerName);
-
                 String rawValue = (colIndex < fields.length) ? fields[colIndex].trim() : "";
 
-                if (hasValueDelimiter && rawValue.contains(valDelim)) {
-                    String[] subValues = rawValue.split(valDelimRegex);
-                    columnData.add(Arrays.asList(subValues));
+                if (hasMultiDelim && rawValue.contains(multiDelim)) {
+                    List<List<String>> multiValueList = new ArrayList<>();
+                    String[] multiParts = rawValue.split(Pattern.quote(multiDelim));
+                    for (String part : multiParts) {
+                        if (hasSubDelim && part.contains(subDelim)) {
+                            multiValueList.add(Arrays.asList(part.split(Pattern.quote(subDelim))));
+                        } else {
+                            multiValueList.add(List.of(part));
+                        }
+                    }
+                    columnData.add(multiValueList);
+                } else if (hasSubDelim && rawValue.contains(subDelim)) {
+                    columnData.add(Arrays.asList(rawValue.split(Pattern.quote(subDelim))));
                 } else {
                     columnData.add(rawValue);
                 }
@@ -73,7 +81,6 @@ public class ParserService {
         }
 
         applyHandlers(columns, config);
-
         return columns;
     }
 
