@@ -6,7 +6,8 @@ import java.util.stream.Collectors;
 public class FolderConfig {
 
     private boolean isFirstLineHeader = false;
-    private String valueDelimiter;
+    private String subValueDelimiter;
+    private String multiValueDelimiter;
     private String fieldDelimiter = ",";
     private String recordDelimiter = "\n";
     private List<String> headers = new ArrayList<>();
@@ -24,7 +25,8 @@ public class FolderConfig {
             config.isFirstLineHeader = Boolean.parseBoolean(firstLineHeaderStr);
         }
 
-        config.valueDelimiter = props.getProperty("valueDelimiter");
+        config.subValueDelimiter = props.getProperty("subValueDelimiter");
+        config.multiValueDelimiter = props.getProperty("multiValueDelimiter");
         config.fieldDelimiter = props.getProperty("fieldDelimiter", ",");
         config.recordDelimiter = props.getProperty("recordDelimiter", "\n")
                 .replace("\\n", "\n")
@@ -61,13 +63,19 @@ public class FolderConfig {
         if (!isFirstLineHeader && (headers == null || headers.isEmpty())) {
             throw new IllegalStateException("Headers are mandatory when 'isFirstLineHeader' is false.");
         }
+
+        if (tableVersion == null || tableVersion.isBlank()) {
+            throw new IllegalStateException("Property 'tableVersion' is mandatory in folder config. It defines the T24 application.");
+        }
     }
 
     public boolean isFirstLineHeader() { return isFirstLineHeader; }
-    public String getValueDelimiter() { return valueDelimiter; }
+    public String getSubValueDelimiter() { return subValueDelimiter; }
+    public String getMultiValueDelimiter() { return multiValueDelimiter; }
     public String getFieldDelimiter() { return fieldDelimiter; }
     public String getRecordDelimiter() { return recordDelimiter; }
     public List<String> getHeaders() { return headers; }
     public String getLogFileName() { return logFileName; }
     public Map<String, String> getHandlers() { return handlers; }
+    public String getTableVersion() { return tableVersion; }
 }

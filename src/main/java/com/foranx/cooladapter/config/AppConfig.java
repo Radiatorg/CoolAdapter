@@ -72,10 +72,13 @@ public class AppConfig {
             throw new IllegalStateException("fallbackLogName is not set");
         }
 
+        /*
         Path logPath = Paths.get(logFolder);
         if (logPath.getParent() != null && !Files.isDirectory(logPath.getParent())) {
             throw new IllegalStateException("Log directory parent does not exist: " + logPath.getParent());
         }
+
+         */
     }
 
     public void logConfiguration() {
@@ -95,7 +98,6 @@ public class AppConfig {
         return idx > 0 ? value.substring(0, idx) + "/******" : "******";
     }
 
-    // Геттеры
     public List<String> getSupportedExtensions() { return supportedExtensions; }
     public String getLogFolder() { return logFolder; }
     public String getFallbackLogName() { return fallbackLogName; }
