@@ -20,7 +20,8 @@ public class AppStartupListener implements ServletContextListener {
     @Override
     public void contextInitialized(ServletContextEvent sce) {
         try {
-            log.info("Initializing CoolAdapter...");
+
+            System.out.println("Initializing CoolAdapter...");
 
             InputStream in = sce.getServletContext()
                     .getResourceAsStream("/WEB-INF/classes/application.properties");
@@ -37,15 +38,21 @@ public class AppStartupListener implements ServletContextListener {
             log.info("CoolAdapter started successfully.");
 
         } catch (Exception e) {
+            e.printStackTrace();
             throw new RuntimeException("Failed to start application", e);
         }
     }
 
     @Override
     public void contextDestroyed(ServletContextEvent sce) {
+        log.info("Stopping CoolAdapter...");
+
         if (watcher != null) {
             watcher.stop();
             log.info("DirectoryWatcher stopped.");
         }
+
+        LoggingUtil.closeHandlers();
+        System.out.println("CoolAdapter logging handlers closed.");
     }
 }
