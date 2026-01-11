@@ -1,6 +1,7 @@
 package com.foranx.cooladapter.config;
 
 import java.util.*;
+import java.util.logging.Logger;
 
 public record FolderConfig(
         boolean isFirstLineHeader,
@@ -15,6 +16,7 @@ public record FolderConfig(
         String tableVersion,
         int gtsControl
 ) {
+    private static final Logger log = Logger.getLogger(FolderConfig.class.getName());
 
     private static final String PROP_GTS_CONTROL = "gtsControl";
     private static final String DEFAULT_GTS_CONTROL = "1";
@@ -37,7 +39,23 @@ public record FolderConfig(
     private static final String DEFAULT_HANDLER = "com.temenos.handlers.Test.java";
 
     public FolderConfig {
-        validate();
+        if (!isFirstLineHeader && (headers == null || headers.isEmpty())) {
+            throw new IllegalStateException(
+                    "FolderConfig: 'headers' must be specified when isFirstLineHeader=false"
+            );
+        }
+
+        List<String> delimiters = new ArrayList<>();
+        if (subValueDelimiter != null) delimiters.add(subValueDelimiter);
+        if (fieldDelimiter != null) delimiters.add(fieldDelimiter);
+        if (recordDelimiter != null) delimiters.add(recordDelimiter);
+
+        long uniqueCount = delimiters.stream().distinct().count();
+        if (uniqueCount < delimiters.size()) {
+            throw new IllegalStateException(
+                    "FolderConfig: 'subValueDelimiter', 'fieldDelimiter' and 'recordDelimiter' must be different"
+            );
+        }
     }
 
     public static FolderConfig fromProperties(Properties props, String folderName) {
@@ -156,25 +174,5 @@ public record FolderConfig(
             );
         }
         return value;
-    }
-
-    private void validate() {
-        if (!isFirstLineHeader && (headers == null || headers.isEmpty())) {
-            throw new IllegalStateException(
-                    "FolderConfig: 'headers' must be specified when isFirstLineHeader=false"
-            );
-        }
-
-        List<String> delimiters = new ArrayList<>();
-        if (subValueDelimiter != null) delimiters.add(subValueDelimiter);
-        if (fieldDelimiter != null) delimiters.add(fieldDelimiter);
-        if (recordDelimiter != null) delimiters.add(recordDelimiter);
-
-        long uniqueCount = delimiters.stream().distinct().count();
-        if (uniqueCount < delimiters.size()) {
-            throw new IllegalStateException(
-                    "FolderConfig: 'subValueDelimiter', 'fieldDelimiter' and 'recordDelimiter' must be different"
-            );
-        }
     }
 }

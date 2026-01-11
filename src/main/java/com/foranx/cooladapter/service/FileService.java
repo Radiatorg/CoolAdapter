@@ -5,6 +5,8 @@ import com.foranx.cooladapter.config.FolderConfig;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -115,8 +117,10 @@ public class FileService {
 
         Path propertiesFile = propFiles.getFirst();
         Properties props = new Properties();
-        try (InputStream in = Files.newInputStream(propertiesFile)) {
-            props.load(in);
+        try (InputStream in = Files.newInputStream(propertiesFile);
+             InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+            props.load(reader);
+            log.info("DEBUG: Properties loaded for folder " + folder + ": " + props);
         } catch (IOException e) {
             throw new RuntimeException("Failed to load properties file: " + propertiesFile, e);
         }
