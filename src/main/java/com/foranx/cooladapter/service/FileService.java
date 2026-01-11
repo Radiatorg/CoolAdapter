@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -46,11 +47,22 @@ public class FileService {
             if (folderConfig != null) {
                 try {
                     Map<String, List<Object>> data = ParserService.parse(file, folderConfig);
-                    printParsedData(data);
+
+                    List<String> ofsMessages = generateOfsMessages(data, folderConfig);
+
+                    log.info("============== OFS MESSAGES FOR T24 ==============");
+                    if (ofsMessages.isEmpty()) {
+                        log.info("(No records to process)");
+                    } else {
+                        ofsMessages.forEach(log::info);
+                    }
+                    log.info("==================================================");
+
                 } catch (Exception e) {
-                    log.log(Level.SEVERE, ">>> Parsing failed for file: " + file, e);
+                    log.log(Level.SEVERE, ">>> Parsing or OFS generation failed for file: " + file, e);
                 }
-            } else {
+            }
+            else {
                 log.warning(">>> No local .properties found for folder: " + file.getParent() + ". Skipping parsing.");
             }
 
@@ -71,7 +83,7 @@ public class FileService {
         if (file.getParent().endsWith(PROCESSED_DIR)) return false;
 
         String ext = getExtension(filename);
-        return appConfig.getSupportedExtensions().contains(ext);
+        return appConfig.supportedExtensions().contains(ext);
     }
 
     private FolderConfig loadFolderConfig(Path folder) {
@@ -120,7 +132,7 @@ public class FileService {
 
         Path target = processedDir.resolve(file.getFileName());
 
-        if (appConfig.isCheckHashBeforeCopy() && Files.exists(target)) {
+        if (appConfig.checkHashBeforeCopy() && Files.exists(target)) {
             try {
                 String sourceHash = calculateFileHash(file);
                 String targetHash = calculateFileHash(target);
@@ -181,16 +193,65 @@ public class FileService {
         return false;
     }
 
-    private void printParsedData(Map<String, List<Object>> data) {
-        log.info("============== PARSED DATA ==============");
+    private List<String> generateOfsMessages(Map<String, List<Object>> data, FolderConfig folderConfig) {
+        List<String> ofsMessages = new ArrayList<>();
+
         if (data.isEmpty()) {
-            log.info("(Empty Result)");
-        } else {
-            data.forEach((header, values) ->
-                    log.info(String.format("COLUMN [%-15s] : %s", header, values))
-            );
+            return ofsMessages;
         }
-        log.info("=========================================");
+
+        String operation = folderConfig.getTableVersion();
+        String options = folderConfig.getTableVersion() + "/I/PROCESS";
+        String userInformation = appConfig.credentials().username();
+
+        List<String> headers = new ArrayList<>(data.keySet());
+        if (headers.isEmpty()) return ofsMessages;
+
+        int recordCount = data.get(headers.get(0)).size();
+        String idHeader = headers.get(0);
+
+        for (int i = 0; i < recordCount; i++) {
+            String idInformation = data.get(idHeader).get(i).toString();
+
+            StringBuilder dataPart = new StringBuilder();
+            for (int h = 1; h < headers.size(); h++) {
+                String header = headers.get(h);
+                Object value = data.get(header).get(i);
+
+                if (value instanceof List) {
+                    List<?> outerList = (List<?>) value;
+                    if (!outerList.isEmpty() && outerList.get(0) instanceof List) {
+                        @SuppressWarnings("unchecked")
+                        List<List<String>> multiValueList = (List<List<String>>) value;
+                        for (int m = 0; m < multiValueList.size(); m++) {
+                            List<String> subValueList = multiValueList.get(m);
+                            for (int s = 0; s < subValueList.size(); s++) {
+                                dataPart.append(header).append(":").append(m + 1).append(":").append(s + 1)
+                                        .append("=").append(subValueList.get(s)).append(",");
+                            }
+                        }
+                    } else {
+                        @SuppressWarnings("unchecked")
+                        List<String> subValueList = (List<String>) value;
+                        for (int s = 0; s < subValueList.size(); s++) {
+                            dataPart.append(header).append(":").append(s + 1)
+                                    .append("=").append(subValueList.get(s)).append(",");
+                        }
+                    }
+                } else {
+                    dataPart.append(header).append("=").append(value).append(",");
+                }
+            }
+
+            if (dataPart.length() > 0) {
+                dataPart.deleteCharAt(dataPart.length() - 1);
+            }
+
+            String finalOfsMessage = String.join(",", operation, options, userInformation, idInformation, dataPart.toString());
+            ofsMessages.add(finalOfsMessage);
+        }
+
+        return ofsMessages;
     }
 
     private String getExtension(String filename) {
