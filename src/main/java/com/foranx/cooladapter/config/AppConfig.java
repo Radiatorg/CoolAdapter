@@ -1,17 +1,25 @@
 package com.foranx.cooladapter.config;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
+import java.net.URI;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.*;
+import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class AppConfig {
-
+public record AppConfig(
+        List<String> supportedExtensions,
+        String logFolder,
+        String fallbackLogName,
+        Credentials credentials,
+        Level logLevel,
+        Path directory,
+        URI activeMqUrl,
+        String queue,
+        boolean checkHashBeforeCopy
+) {
     private static final Logger log = Logger.getLogger(AppConfig.class.getName());
 
+<<<<<<< HEAD
     private List<String> supportedExtensions = new ArrayList<>(List.of("csv", "txt"));
     private String logFolder;
     private String fallbackLogName;
@@ -81,16 +89,28 @@ public class AppConfig {
          */
     }
 
+=======
+>>>>>>> ca2b6794429a0d7a23ab3c1fd123d6a23daa40f5
     public void logConfiguration() {
-        log.info("=== Application configuration loaded ===");
-        log.info("supportedExtensions = " + supportedExtensions);
-        log.info("logFolder           = " + logFolder);
-        log.info("directory           = " + directory);
-        log.info("activeMqUrl         = " + activeMqUrl);
-        log.info("credentials         = " + mask(credentials));
-        log.info("checkHashBeforeCopy = " + checkHashBeforeCopy);
-        log.info("========================================");
+        log.info(() -> """
+        === Application configuration loaded ===
+        supportedExtensions = %s
+        logFolder           = %s
+        directory           = %s
+        activeMqUrl         = %s
+        credentials         = %s
+        checkHashBeforeCopy = %s
+        ========================================
+        """.formatted(
+                supportedExtensions,
+                logFolder,
+                directory,
+                activeMqUrl,
+                credentials,
+                checkHashBeforeCopy
+        ));
     }
+<<<<<<< HEAD
 
     private String mask(String value) {
         if (value == null) return null;
@@ -107,4 +127,6 @@ public class AppConfig {
     public String getCredentials() { return credentials; }
     public String getLogLevel() { return logLevel; }
     public boolean isCheckHashBeforeCopy() { return checkHashBeforeCopy; }
+=======
+>>>>>>> ca2b6794429a0d7a23ab3c1fd123d6a23daa40f5
 }

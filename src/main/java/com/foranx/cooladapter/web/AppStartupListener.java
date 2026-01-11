@@ -1,6 +1,7 @@
 package com.foranx.cooladapter.web;
 
 import com.foranx.cooladapter.config.AppConfig;
+import com.foranx.cooladapter.config.AppConfigLoader;
 import com.foranx.cooladapter.service.FileService;
 import com.foranx.cooladapter.util.LoggingUtil;
 import com.foranx.cooladapter.watcher.DirectoryWatcher;
@@ -20,14 +21,14 @@ public class AppStartupListener implements ServletContextListener {
     @Override
     public void contextInitialized(ServletContextEvent sce) {
         try {
-
             System.out.println("Initializing CoolAdapter...");
 
             InputStream in = sce.getServletContext()
                     .getResourceAsStream("/WEB-INF/classes/application.properties");
-            AppConfig config = AppConfig.load(in);
 
-            LoggingUtil.configure(config.getLogFolder(), config.getLogLevel());
+            AppConfig config = AppConfigLoader.load(in);
+
+            LoggingUtil.configure(config.logFolder(), config.logLevel().getName());
             config.logConfiguration();
 
             FileService fileService = new FileService(config);

@@ -27,7 +27,7 @@ public class DirectoryWatcher {
     private final Map<Path, Long> eventDebounce = new ConcurrentHashMap<>();
 
     public DirectoryWatcher(AppConfig config, Consumer<Path> onFileEvent) {
-        this.rootPath = Paths.get(config.getDirectory()).toAbsolutePath().normalize();
+        this.rootPath = config.directory();
         this.onFileEvent = onFileEvent;
     }
 
