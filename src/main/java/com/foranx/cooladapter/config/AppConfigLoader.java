@@ -15,30 +15,73 @@ public final class AppConfigLoader {
 
     private AppConfigLoader() {}
 
+    private static final String PROP_SUPPORTED_EXTENSIONS = "supportedExtensions";
+    private static final String PROP_LOG_FOLDER = "logFolder";
+    private static final String PROP_FALLBACK_LOG_NAME = "fallbackLogName";
+    private static final String PROP_CREDENTIALS = "credentials";
+    private static final String PROP_LOG_LEVEL = "logLevel";
+    private static final String PROP_DIRECTORY = "directory";
+    private static final String PROP_ACTIVEMQ_URL = "activeMqUrl";
+    private static final String PROP_QUEUE = "queue";
+    private static final String PROP_CHECK_HASH = "checkHashBeforeCopy";
+
+    private static final String DEFAULT_SUPPORTED_EXTENSIONS = "csv,txt";
+    private static final String DEFAULT_CREDENTIALS = "INPUTT/123456";
+    private static final String DEFAULT_LOG_LEVEL = "INFO";
+    private static final String DEFAULT_ACTIVE_MQ_URL = "tcp://192.168.38.3:5445";
+    private static final String DEFAULT_DIRECTORY = "~/S_FILE_UPLOADER";
+    private static final String DEFAULT_QUEUE = "java:/queue/t24DSPPACKAGERQueue";
+    private static final String DEFAULT_CHECK_HASH = "true";
+
     public static AppConfig load(InputStream input) {
         Properties props = loadProperties(input);
 
         List<String> supportedExtensions = parseStringToList(
-                props.getProperty("supportedExtensions", "csv,txt")
+                props.getProperty(PROP_SUPPORTED_EXTENSIONS, DEFAULT_SUPPORTED_EXTENSIONS)
         );
 
-        String logFolder = requireNonBlank(props.getProperty("logFolder"), "logFolder");
-        String fallbackLogName = requireNonBlank(props.getProperty("fallbackLogName"), "fallbackLogName");
+        String logFolder = requireNonBlank(
+                props.getProperty(PROP_LOG_FOLDER),
+                PROP_LOG_FOLDER
+        );
+
+        String fallbackLogName = requireNonBlank(
+                props.getProperty(PROP_FALLBACK_LOG_NAME),
+                PROP_FALLBACK_LOG_NAME
+        );
 
         Credentials credentials = parseCredentials(
-                requireNonBlank(props.getProperty("credentials", "INPUTT/123456"), "credentials")
+                requireNonBlank(
+                        props.getProperty(PROP_CREDENTIALS, DEFAULT_CREDENTIALS),
+                        PROP_CREDENTIALS
+                )
         );
 
-        Level logLevel = parseLogLevel(props.getProperty("logLevel", "INFO"));
+        Level logLevel = parseLogLevel(
+                props.getProperty(PROP_LOG_LEVEL, DEFAULT_LOG_LEVEL)
+        );
 
-        Path directory = resolvePath(requireNonBlank(props.getProperty("directory", "~/S_FILE_UPLOADER"), "directory"));
+        Path directory = resolvePath(
+                requireNonBlank(
+                        props.getProperty(PROP_DIRECTORY, DEFAULT_DIRECTORY),
+                        PROP_DIRECTORY
+                )
+        );
 
-        URI activeMqUri = parseURI(requireNonBlank(props.getProperty("activeMqUrl"), "activeMqUrl"));
+        URI activeMqUri = parseURI(
+                requireNonBlank(
+                        props.getProperty(PROP_ACTIVEMQ_URL, DEFAULT_ACTIVE_MQ_URL),
+                        PROP_ACTIVEMQ_URL
+                )
+        );
 
-        String queue = requireNonBlank(props.getProperty("queue", "java:/queue/t24DSPPACKAGERQueue"), "queue");
+        String queue = requireNonBlank(
+                props.getProperty(PROP_QUEUE, DEFAULT_QUEUE),
+                PROP_QUEUE
+        );
 
         boolean checkHashBeforeCopy = Boolean.parseBoolean(
-                props.getProperty("checkHashBeforeCopy", "true")
+                props.getProperty(PROP_CHECK_HASH, DEFAULT_CHECK_HASH)
         );
 
         try {
