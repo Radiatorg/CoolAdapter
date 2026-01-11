@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class ParserService {
 
@@ -20,7 +19,7 @@ public class ParserService {
             return Collections.emptyMap();
         }
 
-        String[] records = content.split(Pattern.quote(config.getRecordDelimiter()));
+        String[] records = content.split(Pattern.quote(config.recordDelimiter()));
         if (records.length == 0) {
             return Collections.emptyMap();
         }
@@ -30,14 +29,14 @@ public class ParserService {
 
         if (config.isFirstLineHeader()) {
             String headerLine = records[0];
-            String[] headerParts = headerLine.split(Pattern.quote(config.getFieldDelimiter()));
+            String[] headerParts = headerLine.split(Pattern.quote(config.fieldDelimiter()));
             headers = new ArrayList<>();
             for (String h : headerParts) {
                 headers.add(h.trim());
             }
             dataStartIndex = 1;
         } else {
-            headers = config.getHeaders();
+            headers = config.headers();
         }
 
         Map<String, List<Object>> columns = new LinkedHashMap<>();
@@ -45,8 +44,8 @@ public class ParserService {
             columns.put(header, new ArrayList<>());
         }
 
-        String multiDelim = config.getMultiValueDelimiter();
-        String subDelim = config.getSubValueDelimiter();
+        String multiDelim = config.multiValueDelimiter();
+        String subDelim = config.subValueDelimiter();
         boolean hasMultiDelim = multiDelim != null && !multiDelim.isEmpty();
         boolean hasSubDelim = subDelim != null && !subDelim.isEmpty();
 
@@ -54,7 +53,7 @@ public class ParserService {
             String record = records[i];
             if (record.trim().isEmpty()) continue;
 
-            String[] fields = record.split(Pattern.quote(config.getFieldDelimiter()), -1);
+            String[] fields = record.split(Pattern.quote(config.fieldDelimiter()), -1);
 
             for (int colIndex = 0; colIndex < headers.size(); colIndex++) {
                 String headerName = headers.get(colIndex);
@@ -86,7 +85,7 @@ public class ParserService {
 
 
     private static void applyHandlers(Map<String, List<Object>> columns, FolderConfig config) {
-        Map<String, String> handlerConfigs = config.getHandlers();
+        Map<String, String> handlerConfigs = config.handlers();
 
         columns.forEach((header, values) -> {
             String handlerClassName = handlerConfigs.get("handler." + header);

@@ -1,81 +1,180 @@
 package com.foranx.cooladapter.config;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
-public class FolderConfig {
+public record FolderConfig(
+        boolean isFirstLineHeader,
+        String subValueDelimiter,
+        String multiValueDelimiter,
+        String fieldDelimiter,
+        String recordDelimiter,
+        List<String> headers,
+        String logFileName,
+        String fallbackLogFileName,
+        Map<String, String> handlers,
+        String tableVersion,
+        int gtsControl
+) {
 
-    private boolean isFirstLineHeader = false;
-    private String subValueDelimiter;
-    private String multiValueDelimiter;
-    private String fieldDelimiter = ",";
-    private String recordDelimiter = "\n";
-    private List<String> headers = new ArrayList<>();
-    private String logFileName;
-    private final Map<String, String> handlers = new LinkedHashMap<>();
-    private String tableVersion;
+    private static final String PROP_GTS_CONTROL = "gtsControl";
+    private static final String DEFAULT_GTS_CONTROL = "1";
+    private static final Set<Integer> VALID_GTS_VALUES = Set.of(1, 2, 3, 4);
 
-    private FolderConfig() {}
+    private static final String PROP_FIRST_LINE_HEADER = "isFirstLineHeader";
+    private static final String PROP_SUB_VALUE_DELIMITER = "subValueDelimiter";
+    private static final String PROP_MULTI_VALUE_DELIMITER = "multiValueDelimiter";
+    private static final String PROP_FIELD_DELIMITER = "fieldDelimiter";
+    private static final String PROP_RECORD_DELIMITER = "recordDelimiter";
+    private static final String PROP_HEADERS = "headers";
+    private static final String PROP_LOG_FILE_NAME = "logFileName";
+    private static final String PROP_FALLBACK_LOG_FILE_NAME = "fallbackLogFileName";
+    private static final String PROP_TABLE_VERSION = "tableVersion";
+    private static final String HANDLER_PREFIX = "handler.";
+
+    private static final String DEFAULT_FIELD_DELIMITER = ",";
+    private static final String DEFAULT_RECORD_DELIMITER = "\n";
+    private static final String DEFAULT_FALLBACK_LOG_FILE = "fallback.log";
+    private static final String DEFAULT_HANDLER = "com.temenos.handlers.Test.java";
+
+    public FolderConfig {
+        validate();
+    }
 
     public static FolderConfig fromProperties(Properties props, String folderName) {
-        FolderConfig config = new FolderConfig();
 
-        String firstLineHeaderStr = props.getProperty("isFirstLineHeader");
-        if (firstLineHeaderStr != null) {
-            config.isFirstLineHeader = Boolean.parseBoolean(firstLineHeaderStr);
+        boolean isFirstLineHeader = Boolean.parseBoolean(
+                props.getProperty(PROP_FIRST_LINE_HEADER, "false")
+        );
+
+        String subValueDelimiter = props.getProperty(PROP_SUB_VALUE_DELIMITER);
+        String multiValueDelimiter = props.getProperty(PROP_MULTI_VALUE_DELIMITER);
+
+        String fieldDelimiter = props.getProperty(
+                PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER
+        );
+
+        String recordDelimiter = normalizeDelimiter(
+                props.getProperty(PROP_RECORD_DELIMITER, DEFAULT_RECORD_DELIMITER)
+        );
+
+        List<String> headers = parseHeaders(props.getProperty(PROP_HEADERS));
+
+        String logFileName = requireNonBlank(
+                props.getProperty(PROP_LOG_FILE_NAME, folderName + ".log"),
+                PROP_LOG_FILE_NAME
+        );
+
+        String fallbackLogFileName = requireNonBlank(
+                props.getProperty(PROP_FALLBACK_LOG_FILE_NAME, DEFAULT_FALLBACK_LOG_FILE),
+                PROP_FALLBACK_LOG_FILE_NAME
+        );
+
+        String tableVersion = requireNonBlank(
+                props.getProperty(PROP_TABLE_VERSION),
+                PROP_TABLE_VERSION
+        );
+
+        Map<String, String> handlers = parseHandlers(props);
+
+        int gtsControl = parseGtsControl(
+                props.getProperty(PROP_GTS_CONTROL, DEFAULT_GTS_CONTROL)
+        );
+
+        return new FolderConfig(
+                isFirstLineHeader,
+                subValueDelimiter,
+                multiValueDelimiter,
+                fieldDelimiter,
+                recordDelimiter,
+                headers,
+                logFileName,
+                fallbackLogFileName,
+                handlers,
+                tableVersion,
+                gtsControl
+        );
+    }
+
+    private static int parseGtsControl(String gtsControlValue) {
+        int value;
+        try {
+            value = Integer.parseInt(gtsControlValue);
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException(
+                    "FolderConfig: '" + PROP_GTS_CONTROL + "' must be a valid integer. Found: '" + gtsControlValue + "'"
+            );
         }
 
-        config.subValueDelimiter = props.getProperty("subValueDelimiter");
-        config.multiValueDelimiter = props.getProperty("multiValueDelimiter");
-        config.fieldDelimiter = props.getProperty("fieldDelimiter", ",");
-        config.recordDelimiter = props.getProperty("recordDelimiter", "\n")
-                .replace("\\n", "\n")
-                .replace("\\r", "\r");
+        if (!VALID_GTS_VALUES.contains(value)) {
+            throw new IllegalStateException(
+                    "FolderConfig: '" + PROP_GTS_CONTROL + "' must be one of " + VALID_GTS_VALUES + ". Found: '" + gtsControlValue + "'"
+            );
+        }
+        return value;
+    }
 
-        String headersStr = props.getProperty("headers");
-        if (headersStr != null && !headersStr.isBlank()) {
-            config.headers = Arrays.stream(headersStr.split(","))
-                    .map(String::trim)
-                    .collect(Collectors.toList());
+    private static List<String> parseHeaders(String headersValue) {
+        if (headersValue == null || headersValue.isBlank()) {
+            return List.of();
         }
 
-        config.logFileName = props.getProperty("logFileName");
-        if (config.logFileName == null || config.logFileName.isBlank()) {
-            config.logFileName = folderName + ".log";
-        }
+        return Arrays.stream(headersValue.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
 
-        config.tableVersion = props.getProperty("tableVersion");
+    private static Map<String, String> parseHandlers(Properties props) {
+        Map<String, String> handlers = new LinkedHashMap<>();
 
         for (String key : props.stringPropertyNames()) {
-            if (key.startsWith("handler.")) {
-                config.handlers.put(key, props.getProperty(key));
+            if (key.startsWith(HANDLER_PREFIX)) {
+                handlers.put(key, props.getProperty(key));
             }
         }
-        if (config.handlers.isEmpty()) {
-            config.handlers.put("handler.default", "com.temenos.handlers.Test.java");
+
+        if (handlers.isEmpty()) {
+            handlers.put(
+                    HANDLER_PREFIX + "default",
+                    DEFAULT_HANDLER
+            );
         }
 
-        config.validate();
-        return config;
+        return Collections.unmodifiableMap(handlers);
+    }
+
+    private static String normalizeDelimiter(String value) {
+        return value
+                .replace("\\r", "\r")
+                .replace("\\n", "\n");
+    }
+
+    private static String requireNonBlank(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(
+                    "FolderConfig: '" + name + "' must be set and non-empty"
+            );
+        }
+        return value;
     }
 
     private void validate() {
         if (!isFirstLineHeader && (headers == null || headers.isEmpty())) {
-            throw new IllegalStateException("Headers are mandatory when 'isFirstLineHeader' is false.");
+            throw new IllegalStateException(
+                    "FolderConfig: 'headers' must be specified when isFirstLineHeader=false"
+            );
         }
 
-        if (tableVersion == null || tableVersion.isBlank()) {
-            throw new IllegalStateException("Property 'tableVersion' is mandatory in folder config. It defines the T24 application.");
+        List<String> delimiters = new ArrayList<>();
+        if (subValueDelimiter != null) delimiters.add(subValueDelimiter);
+        if (fieldDelimiter != null) delimiters.add(fieldDelimiter);
+        if (recordDelimiter != null) delimiters.add(recordDelimiter);
+
+        long uniqueCount = delimiters.stream().distinct().count();
+        if (uniqueCount < delimiters.size()) {
+            throw new IllegalStateException(
+                    "FolderConfig: 'subValueDelimiter', 'fieldDelimiter' and 'recordDelimiter' must be different"
+            );
         }
     }
-
-    public boolean isFirstLineHeader() { return isFirstLineHeader; }
-    public String getSubValueDelimiter() { return subValueDelimiter; }
-    public String getMultiValueDelimiter() { return multiValueDelimiter; }
-    public String getFieldDelimiter() { return fieldDelimiter; }
-    public String getRecordDelimiter() { return recordDelimiter; }
-    public List<String> getHeaders() { return headers; }
-    public String getLogFileName() { return logFileName; }
-    public Map<String, String> getHandlers() { return handlers; }
-    public String getTableVersion() { return tableVersion; }
 }

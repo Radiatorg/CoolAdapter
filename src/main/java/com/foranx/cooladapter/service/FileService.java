@@ -200,8 +200,8 @@ public class FileService {
             return ofsMessages;
         }
 
-        String operation = folderConfig.getTableVersion();
-        String options = folderConfig.getTableVersion() + "/I/PROCESS";
+        String operation = folderConfig.tableVersion();
+        String options = folderConfig.tableVersion() + "/I/PROCESS";
         String userInformation = appConfig.credentials().username();
 
         List<String> headers = new ArrayList<>(data.keySet());
