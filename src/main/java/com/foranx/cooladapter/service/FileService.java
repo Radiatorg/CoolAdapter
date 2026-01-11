@@ -83,7 +83,7 @@ public class FileService {
         if (file.getParent().endsWith(PROCESSED_DIR)) return false;
 
         String ext = getExtension(filename);
-        return appConfig.getSupportedExtensions().contains(ext);
+        return appConfig.supportedExtensions().contains(ext);
     }
 
     private FolderConfig loadFolderConfig(Path folder) {
@@ -132,7 +132,7 @@ public class FileService {
 
         Path target = processedDir.resolve(file.getFileName());
 
-        if (appConfig.isCheckHashBeforeCopy() && Files.exists(target)) {
+        if (appConfig.checkHashBeforeCopy() && Files.exists(target)) {
             try {
                 String sourceHash = calculateFileHash(file);
                 String targetHash = calculateFileHash(target);
@@ -202,7 +202,7 @@ public class FileService {
 
         String operation = folderConfig.getTableVersion();
         String options = folderConfig.getTableVersion() + "/I/PROCESS";
-        String userInformation = appConfig.getCredentials();
+        String userInformation = appConfig.credentials().username();
 
         List<String> headers = new ArrayList<>(data.keySet());
         if (headers.isEmpty()) return ofsMessages;
