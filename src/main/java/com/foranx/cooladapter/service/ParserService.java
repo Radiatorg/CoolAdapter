@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public class ParserService {
 
     public static void validateStructure(Path file, FolderConfig config) throws IOException {
-        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+        try (BufferedReader reader = Files.newBufferedReader(file, config.charset())) {
 
             String fieldDelimPattern = Pattern.quote(config.fieldDelimiter());
             int expectedColumns = config.headers().size();
@@ -59,7 +59,7 @@ public class ParserService {
      */
     public static void parseStream(Path file, FolderConfig config, Consumer<Map<String, Object>> rowProcessor) throws IOException {
 
-        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+        try (BufferedReader reader = Files.newBufferedReader(file, config.charset())) {
 
             List<String> headers;
 
