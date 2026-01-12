@@ -10,10 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -32,44 +29,31 @@ public class FileService {
     }
 
     public void processFile(Path file) {
-        if (!shouldProcess(file)) {
-            return;
-        }
+        if (!shouldProcess(file)) return;
 
         if (!waitForStability(file)) {
-            log.warning(">>> File skipped or unstable (locked/empty): " + file);
+            log.warning(">>> File skipped (unstable/locked): " + file);
             return;
         }
 
+        log.info(">>> START PROCESSING: " + file.getFileName());
+
         try {
-            log.info(">>> START PROCESSING: " + file.getFileName());
-
             FolderConfig folderConfig = loadFolderConfig(file.getParent());
-
-            if (folderConfig != null) {
-                try {
-                    Map<String, List<Object>> data = ParserService.parse(file, folderConfig);
-
-                    List<String> ofsMessages = generateOfsMessages(data, folderConfig);
-
-                    log.info("============== OFS MESSAGES FOR T24 ==============");
-                    if (ofsMessages.isEmpty()) {
-                        log.info("(No records to process)");
-                    } else {
-                        ofsMessages.forEach(log::info);
-                    }
-                    log.info("==================================================");
-
-                } catch (Exception e) {
-                    log.log(Level.SEVERE, ">>> Parsing or OFS generation failed for file: " + file, e);
-                }
+            if (folderConfig == null) {
+                log.warning(">>> Parsing skipped: No configuration found for " + file.getParent());
+                copyToProcessed(file);
+                return;
             }
-            else {
-                log.warning(">>> No local .properties found for folder: " + file.getParent() + ". Skipping parsing.");
-            }
+
+            Map<String, List<Object>> data = ParserService.parse(file, folderConfig);
+
+            OfsMessageBuilder builder = new OfsMessageBuilder(folderConfig, appConfig);
+            List<String> ofsMessages = builder.build(data);
+
+            logOfsMessages(ofsMessages);
 
             copyToProcessed(file);
-
             log.info(">>> END PROCESSING: " + file.getFileName());
 
         } catch (Exception e) {
@@ -77,189 +61,142 @@ public class FileService {
         }
     }
 
-    private boolean shouldProcess(Path file) {
-        if (!Files.isRegularFile(file)) return false;
-
-        String filename = file.getFileName().toString();
-        if (filename.endsWith(CONFIG_EXT)) return false;
-        if (file.getParent().endsWith(PROCESSED_DIR)) return false;
-
-        String ext = getExtension(filename);
-        return appConfig.supportedExtensions().contains(ext);
+    private void logOfsMessages(List<String> messages) {
+        log.info("============== OFS MESSAGES FOR T24 ==============");
+        if (messages.isEmpty()) {
+            log.info("(No records to process)");
+        } else {
+            messages.forEach(log::info);
+        }
+        log.info("==================================================");
     }
 
-    private FolderConfig loadFolderConfig(Path folder) {
+    private FolderConfig loadFolderConfig(Path folder) throws IOException {
         List<Path> propFiles;
-
         try (var stream = Files.list(folder)) {
             propFiles = stream
                     .filter(p -> p.toString().endsWith(CONFIG_EXT))
                     .toList();
-        } catch (IOException e) {
-            log.warning("Failed to search properties in " + folder);
-            return null;
         }
 
-        if (propFiles.isEmpty()) {
-            return null;
-        }
+        if (propFiles.isEmpty()) return null;
 
         if (propFiles.size() > 1) {
-            String fileNames = propFiles.stream()
-                    .map(p -> p.getFileName().toString())
-                    .collect(Collectors.joining(", "));
-
-            throw new IllegalStateException(
-                    String.format("Ambiguous configuration: Found %d .properties files in folder '%s': [%s]. Allowed only one.",
-                            propFiles.size(), folder, fileNames)
-            );
+            String names = propFiles.stream().map(p -> p.getFileName().toString()).collect(Collectors.joining(", "));
+            throw new IllegalStateException("Ambiguous configuration in " + folder + ": [" + names + "]");
         }
 
-        Path propertiesFile = propFiles.getFirst();
+        Path propFile = propFiles.getFirst();
         Properties props = new Properties();
-        try (InputStream in = Files.newInputStream(propertiesFile);
-             InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        try (var reader = new InputStreamReader(Files.newInputStream(propFile), StandardCharsets.UTF_8)) {
             props.load(reader);
-            log.info("DEBUG: Properties loaded for folder " + folder + ": " + props);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to load properties file: " + propertiesFile, e);
         }
 
         return FolderConfig.fromProperties(props, folder.getFileName().toString());
     }
 
-    private void copyToProcessed(Path file) throws IOException {
-        Path processedDir = file.getParent().resolve(PROCESSED_DIR);
-        if (!Files.exists(processedDir)) {
-            Files.createDirectories(processedDir);
-        }
-
-        Path target = processedDir.resolve(file.getFileName());
+    private void copyToProcessed(Path source) throws IOException {
+        Path targetDir = source.getParent().resolve(PROCESSED_DIR);
+        Files.createDirectories(targetDir);
+        Path target = targetDir.resolve(source.getFileName());
 
         if (appConfig.checkHashBeforeCopy() && Files.exists(target)) {
-            try {
-                String sourceHash = calculateFileHash(file);
-                String targetHash = calculateFileHash(target);
-
-                if (sourceHash.equals(targetHash)) {
-                    log.info(">>> File already exists in .processed with SAME CONTENT (Hash match). Skipping copy.");
-                    return;
-                } else {
-                    log.warning(">>> File in .processed differs from source. Updating backup copy.");
-                }
-            } catch (NoSuchAlgorithmException e) {
-                log.log(Level.SEVERE, "Hashing algorithm error", e);
+            if (isSameContent(source, target)) {
+                log.info(">>> File exists in .processed with SAME CONTENT. Skipping copy.");
+                return;
             }
+            log.warning(">>> File in .processed differs. Overwriting.");
         }
 
-        Files.copy(file, target, StandardCopyOption.REPLACE_EXISTING);
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
         log.info(">>> File COPIED to: " + target);
+    }
+
+    private boolean isSameContent(Path file1, Path file2) {
+        try {
+            String hash1 = calculateFileHash(file1);
+            String hash2 = calculateFileHash(file2);
+            return hash1.equals(hash2);
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Hash calculation failed, assuming files differ", e);
+            return false;
+        }
     }
 
     private String calculateFileHash(Path path) throws IOException, NoSuchAlgorithmException {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (InputStream fis = Files.newInputStream(path)) {
             byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                digest.update(buffer, 0, bytesRead);
+            int n;
+            while ((n = fis.read(buffer)) != -1) {
+                digest.update(buffer, 0, n);
             }
         }
-        byte[] hashBytes = digest.digest();
-
         StringBuilder sb = new StringBuilder();
-        for (byte b : hashBytes) {
+        for (byte b : digest.digest()) {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
     }
 
+    private boolean shouldProcess(Path file) {
+        if (!Files.isRegularFile(file)) return false;
+        String name = file.getFileName().toString();
+        if (name.endsWith(CONFIG_EXT) || file.getParent().endsWith(PROCESSED_DIR)) return false;
+
+        int lastDot = name.lastIndexOf('.');
+        if (lastDot == -1) return false;
+        String ext = name.substring(lastDot + 1).toLowerCase();
+
+        return appConfig.supportedExtensions().contains(ext);
+    }
 
     private boolean waitForStability(Path file) {
-        long lastSize = -1;
-        int attempts = 0;
-        int maxAttempts = 5;
+        final long SILENCE_TIMEOUT = 5_000;
+        final long MAX_GLOBAL_WAIT = 900_000;
+        final long RETRY_DELAY = 1_000;
 
-        while (attempts < maxAttempts) {
+        long startTime = System.currentTimeMillis();
+        long lastSize = -1;
+        long lastChangeTime = System.currentTimeMillis();
+
+        while ((System.currentTimeMillis() - startTime) < MAX_GLOBAL_WAIT) {
             try {
                 if (!Files.exists(file)) return false;
+
                 long currentSize = Files.size(file);
-                if (currentSize > 0 && currentSize == lastSize) {
-                    return true;
+
+                if (currentSize == 0) {
+                    TimeUnit.MILLISECONDS.sleep(RETRY_DELAY);
+                    continue;
                 }
-                lastSize = currentSize;
-                attempts++;
-                TimeUnit.MILLISECONDS.sleep(500);
-            } catch (IOException | InterruptedException e) {
-                return false;
-            }
-        }
-        return false;
-    }
 
-    private List<String> generateOfsMessages(Map<String, List<Object>> data, FolderConfig folderConfig) {
-        List<String> ofsMessages = new ArrayList<>();
+                long now = System.currentTimeMillis();
 
-        if (data.isEmpty()) {
-            return ofsMessages;
-        }
-
-        String operation = folderConfig.tableVersion();
-        String options = folderConfig.tableVersion() + "/I/PROCESS";
-        String userInformation = appConfig.credentials().username();
-
-        List<String> headers = new ArrayList<>(data.keySet());
-        if (headers.isEmpty()) return ofsMessages;
-
-        int recordCount = data.get(headers.get(0)).size();
-        String idHeader = headers.get(0);
-
-        for (int i = 0; i < recordCount; i++) {
-            String idInformation = data.get(idHeader).get(i).toString();
-
-            StringBuilder dataPart = new StringBuilder();
-            for (int h = 1; h < headers.size(); h++) {
-                String header = headers.get(h);
-                Object value = data.get(header).get(i);
-
-                if (value instanceof List) {
-                    List<?> outerList = (List<?>) value;
-                    if (!outerList.isEmpty() && outerList.get(0) instanceof List) {
-                        @SuppressWarnings("unchecked")
-                        List<List<String>> multiValueList = (List<List<String>>) value;
-                        for (int m = 0; m < multiValueList.size(); m++) {
-                            List<String> subValueList = multiValueList.get(m);
-                            for (int s = 0; s < subValueList.size(); s++) {
-                                dataPart.append(header).append(":").append(m + 1).append(":").append(s + 1)
-                                        .append("=").append(subValueList.get(s)).append(",");
-                            }
-                        }
-                    } else {
-                        @SuppressWarnings("unchecked")
-                        List<String> subValueList = (List<String>) value;
-                        for (int s = 0; s < subValueList.size(); s++) {
-                            dataPart.append(header).append(":").append(s + 1)
-                                    .append("=").append(subValueList.get(s)).append(",");
+                if (currentSize != lastSize) {
+                    lastSize = currentSize;
+                    lastChangeTime = now;
+                } else {
+                    if ((now - lastChangeTime) > SILENCE_TIMEOUT) {
+                        try (var raf = new java.io.RandomAccessFile(file.toFile(), "rw")) {
+                            return true;
+                        } catch (IOException e) {
+                            // Файл занят другим процессом. Ждем дальше.
                         }
                     }
-                } else {
-                    dataPart.append(header).append("=").append(value).append(",");
                 }
-            }
 
-            if (dataPart.length() > 0) {
-                dataPart.deleteCharAt(dataPart.length() - 1);
-            }
+                TimeUnit.MILLISECONDS.sleep(RETRY_DELAY);
 
-            String finalOfsMessage = String.join(",", operation, options, userInformation, idInformation, dataPart.toString());
-            ofsMessages.add(finalOfsMessage);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            } catch (IOException e) {
+                // Ошибки доступа к файловой системе (например, сетевой диск отвалился)
+            }
         }
 
-        return ofsMessages;
-    }
-
-    private String getExtension(String filename) {
-        int idx = filename.lastIndexOf('.');
-        return idx > 0 ? filename.substring(idx + 1).toLowerCase() : "";
+        log.warning(">>> TIMEOUT: File never became stable (locked or too slow): " + file);
+        return false;
     }
 }
