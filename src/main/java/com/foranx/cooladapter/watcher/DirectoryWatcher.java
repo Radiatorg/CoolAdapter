@@ -17,7 +17,7 @@ public class DirectoryWatcher {
     private static final Logger log = Logger.getLogger(DirectoryWatcher.class.getName());
 
     private final Path rootPath;
-    private final Consumer<Path> onFileEvent;
+    private final com.foranx.cooladapter.watcher.FileStabilityMonitor monitor;
 
     private WatchService watchService;
     private ExecutorService executor;
@@ -26,9 +26,9 @@ public class DirectoryWatcher {
 
     private final Map<Path, Long> eventDebounce = new ConcurrentHashMap<>();
 
-    public DirectoryWatcher(AppConfig config, Consumer<Path> onFileEvent) {
+    public DirectoryWatcher(AppConfig config, com.foranx.cooladapter.watcher.FileStabilityMonitor monitor) {
         this.rootPath = config.directory();
-        this.onFileEvent = onFileEvent;
+        this.monitor = monitor;
     }
 
     public void start() throws IOException {
@@ -134,21 +134,9 @@ public class DirectoryWatcher {
     }
 
     private void triggerCallback(Path file) {
-        long now = System.currentTimeMillis();
-        Long lastTime = eventDebounce.get(file);
-        if (lastTime != null && (now - lastTime) < 2000) {
-            return;
-        }
-        eventDebounce.put(file, now);
-
-        executor.submit(() -> {
-            try {
-                onFileEvent.accept(file);
-                Thread.sleep(2500);
-                eventDebounce.remove(file);
-            } catch (Exception e) {
-                log.log(Level.WARNING, "Error in file callback", e);
-            }
-        });
+        // Дебаунс (защита от дребезга) можно оставить,
+        // но Monitor сам справится с повторными вызовами, так что можно упростить.
+        monitor.watch(file);
     }
+
 }

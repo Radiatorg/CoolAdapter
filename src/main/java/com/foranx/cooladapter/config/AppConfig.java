@@ -15,7 +15,9 @@ public record AppConfig(
         Path directory,
         URI activeMqUrl,
         String queue,
-        boolean checkHashBeforeCopy
+        boolean checkHashBeforeCopy,
+        long fileStabilityThreshold,
+        long maxFileWaitTime
 ) {
     private static final Logger log = Logger.getLogger(AppConfig.class.getName());
 
