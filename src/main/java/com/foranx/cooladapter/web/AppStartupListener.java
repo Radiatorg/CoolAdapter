@@ -6,10 +6,13 @@ import com.foranx.cooladapter.service.FileService;
 import com.foranx.cooladapter.util.LoggingUtil;
 import com.foranx.cooladapter.watcher.DirectoryWatcher;
 
+import com.foranx.cooladapter.watcher.FileStabilityMonitor;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.annotation.WebListener;
 import java.io.InputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 
 @WebListener
@@ -17,6 +20,8 @@ public class AppStartupListener implements ServletContextListener {
 
     private static final Logger log = Logger.getLogger(AppStartupListener.class.getName());
     private DirectoryWatcher watcher;
+    private FileStabilityMonitor monitor;
+    private ExecutorService processingPool;
 
     @Override
     public void contextInitialized(ServletContextEvent sce) {
@@ -33,7 +38,11 @@ public class AppStartupListener implements ServletContextListener {
 
             FileService fileService = new FileService(config);
 
-            watcher = new DirectoryWatcher(config, fileService::processFile);
+            processingPool = Executors.newFixedThreadPool(10);
+            monitor = new FileStabilityMonitor(config, fileService, processingPool);
+            monitor.start();
+
+            watcher = new DirectoryWatcher(config, monitor);
             watcher.start();
 
             log.info("CoolAdapter started successfully.");
@@ -51,6 +60,15 @@ public class AppStartupListener implements ServletContextListener {
         if (watcher != null) {
             watcher.stop();
             log.info("DirectoryWatcher stopped.");
+        }
+
+        if (monitor != null) {
+            monitor.stop();
+            log.info("FileStabilityMonitor stopped.");
+        }
+
+        if (processingPool != null) {
+            processingPool.shutdown();
         }
 
         LoggingUtil.closeHandlers();

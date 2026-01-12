@@ -24,6 +24,8 @@ public final class AppConfigLoader {
     private static final String PROP_ACTIVEMQ_URL = "activeMqUrl";
     private static final String PROP_QUEUE = "queue";
     private static final String PROP_CHECK_HASH = "checkHashBeforeCopy";
+    private static final String PROP_FILE_STABILITY = "fileStabilityThreshold";
+    private static final String PROP_MAX_FILE_WAIT_TIME = "maxFileWaitTime";
 
     private static final String DEFAULT_SUPPORTED_EXTENSIONS = "csv,txt";
     private static final String DEFAULT_CREDENTIALS = "INPUTT/123456";
@@ -32,6 +34,8 @@ public final class AppConfigLoader {
     private static final String DEFAULT_DIRECTORY = "~/S_FILE_UPLOADER";
     private static final String DEFAULT_QUEUE = "java:/queue/t24DSPPACKAGERQueue";
     private static final String DEFAULT_CHECK_HASH = "true";
+    private static final String DEFAULT_FILE_STABILITY = "2000";
+    private static final String DEFAULT_MAX_FILE_WAIT_TIME = "900000";
 
     public static AppConfig load(InputStream input) {
         Properties props = loadProperties(input);
@@ -90,6 +94,9 @@ public final class AppConfigLoader {
             throw new IllegalStateException("Failed to create/access directory: " + directory, e);
         }
 
+        long stabilityThreshold = Long.parseLong(props.getProperty(PROP_FILE_STABILITY, DEFAULT_FILE_STABILITY));
+        long maxWaitTime = Long.parseLong(props.getProperty(PROP_MAX_FILE_WAIT_TIME, DEFAULT_MAX_FILE_WAIT_TIME));
+
         return new AppConfig(
                 supportedExtensions,
                 logFolder,
@@ -99,7 +106,9 @@ public final class AppConfigLoader {
                 directory,
                 activeMqUri,
                 queue,
-                checkHashBeforeCopy
+                checkHashBeforeCopy,
+                stabilityThreshold,
+                maxWaitTime
         );
     }
 
