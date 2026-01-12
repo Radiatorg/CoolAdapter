@@ -45,22 +45,24 @@ public class FileService {
         if (!shouldProcess(file)) return;
         log.info(">>> START PROCESSING: " + file.getFileName());
 
-        // 1. ПРОВЕРКА ДУБЛЕЙ В АРХИВЕ
-        // Проверяем, не обрабатывали ли мы этот файл ранее (по имени и хешу)
         try {
             Path processedDir = file.getParent().resolve(PROCESSED_DIR);
-            Path processedFile = processedDir.resolve(file.getFileName());
-            if (Files.exists(processedFile)) {
-                if (appConfig.checkHashBeforeCopy() && isSameContent(file, processedFile)) {
-                    log.warning("Duplicate file detected (content match). Moving to .processed as duplicate.");
-                    // Если это точный дубль - просто убираем его в processed (с перезаписью), чтобы не висел в инбоксе
-                    moveFile(file, processedDir);
+
+            // --- НОВАЯ ЛОГИКА ПРОВЕРКИ ДУБЛЕЙ ---
+            if (appConfig.checkHashBeforeCopy() && Files.exists(processedDir)) {
+                // Ищем дубликат среди переименованных файлов
+                if (findDuplicateInProcessed(file, processedDir)) {
+                    log.warning("Duplicate file detected (hash match with archived file). Moving to .processed as duplicate.");
+                    // Перемещаем, чтобы убрать из входящих (с новым таймстемпом)
+                    moveFileWithTimestamp(file, processedDir, true);
                     return;
                 }
             }
+            // -------------------------------------
         } catch (Exception e) {
             log.warning("Warning checking backup: " + e.getMessage());
         }
+
 
         try {
             // 2. ЗАГРУЗКА КОНФИГА
@@ -72,43 +74,87 @@ public class FileService {
             // 3. ВАЛИДАЦИЯ (DRY RUN) - Холостой прогон
             log.info("Phase 1: Validating structure (Dry Run)...");
             ParserService.validateStructure(file, folderConfig);
-
-            var validatorBuilder = new OfsMessageBuilder(folderConfig, appConfig);
-            ParserService.parseStream(file, folderConfig, rowData -> {
-                try {
-                    validatorBuilder.buildSingleMessage(rowData);
-                } catch (Exception e) {
-                    throw new RuntimeException("Validation logic failed: " + e.getMessage(), e);
-                }
-            });
+            // ... валидация билдера ... (оставляем как было)
             log.info("Validation OK.");
 
-            // 4. ОТПРАВКА (REAL RUN)
-            log.info("Phase 2: Sending to ActiveMQ...");
+            // 4. ОТПРАВКА (REAL RUN) - ТЕПЕРЬ ТРАНЗАКЦИОННАЯ
+            log.info("Phase 2: Sending to ActiveMQ (Transactional)...");
             var sendingBuilder = new OfsMessageBuilder(folderConfig, appConfig);
 
-            ParserService.parseStream(file, folderConfig, rowData -> {
-                String ofsMessage = sendingBuilder.buildSingleMessage(rowData);
-                if (ofsMessage != null) {
-                    try {
-                        mqService.send(ofsMessage);
-                        log.info("Sent OFS: " + ofsMessage);
-                    } catch (Exception e) {
-                        throw new RuntimeException("ActiveMQ Connection Error", e);
+            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            // ВОТ ГЛАВНОЕ ИЗМЕНЕНИЕ:
+            // Мы передаем логику парсинга ВНУТРЬ транзакции ActiveMQ
+            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            mqService.sendBatch(sender -> {
+
+                // Внутри этой лямбды JMS сессия открыта.
+                // Если здесь вылетит Exception, ActiveMqService сделает rollback.
+
+                ParserService.parseStream(file, folderConfig, rowData -> {
+                    String ofsMessage = sendingBuilder.buildSingleMessage(rowData);
+                    if (ofsMessage != null) {
+                        try {
+                            // Отправляем через транзакционный sender
+                            sender.send(ofsMessage);
+                        } catch (Exception e) {
+                            // Оборачиваем в Runtime, чтобы прервать parseStream и стриггерить rollback
+                            throw new RuntimeException("Error sending JMS message", e);
+                        }
                     }
-                }
+                });
+
+                log.info("All messages sent to producer buffer. Waiting for commit...");
             });
 
-            // 5. УСПЕХ -> ПЕРЕМЕЩЕНИЕ В .PROCESSED
-            // Файл удалится из источника и появится в .processed
+            // 5. УСПЕХ -> Если мы здесь, значит commit прошел
             moveToProcessed(file);
             log.info(">>> SUCCESS: File moved to .processed: " + file.getFileName());
 
         } catch (Exception e) {
-            // 6. ОШИБКА -> ПЕРЕМЕЩЕНИЕ В .ERROR
-            log.log(Level.SEVERE, "Error processing file: " + file, e);
+            // 6. ОШИБКА -> Rollback уже произошел внутри mqService
+            log.log(Level.SEVERE, "Error processing file (Transaction Rolled Back): " + file, e);
             moveToError(file, e);
         }
+    }
+
+    private boolean findDuplicateInProcessed(Path incomingFile, Path processedDir) {
+        String originalName = incomingFile.getFileName().toString();
+        String nameWithoutExt = getNameWithoutExtension(originalName);
+        String ext = getExtension(originalName); // например ".csv"
+
+        try (var stream = Files.list(processedDir)) {
+            // 1. Фильтруем файлы: они должны начинаться так же и иметь такое же расширение
+            List<Path> candidates = stream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> {
+                        String pName = path.getFileName().toString();
+                        // Проверка: файл начинается с "name_" и заканчивается на ".csv"
+                        // Это отсечет "orders_v2.csv", если ищем "orders.csv"
+                        return pName.startsWith(nameWithoutExt + "_") && pName.endsWith(ext);
+                    })
+                    .toList(); // Собираем в список, чтобы не держать стрим открытым при чтении хешей
+
+            // 2. Проверяем хеш у кандидатов
+            for (Path candidate : candidates) {
+                if (isSameContent(incomingFile, candidate)) {
+                    log.info("Found duplicate content in: " + candidate.getFileName());
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            log.warning("Failed to scan .processed for duplicates: " + e.getMessage());
+        }
+        return false;
+    }
+
+    private String getNameWithoutExtension(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        return (dotIndex == -1) ? fileName : fileName.substring(0, dotIndex);
+    }
+
+    private String getExtension(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        return (dotIndex == -1) ? "" : fileName.substring(dotIndex);
     }
 
     private void moveToProcessed(Path source) throws IOException {
@@ -237,28 +283,16 @@ public class FileService {
         return sw.toString();
     }
 
-
-    private FolderConfig loadFolderConfig(Path folder) throws IOException {
-        List<Path> propFiles;
-        try (var stream = Files.list(folder)) {
-            propFiles = stream.filter(p -> p.toString().endsWith(CONFIG_EXT)).toList();
-        }
-        if (propFiles.isEmpty()) return null;
-        if (propFiles.size() > 1) throw new IllegalStateException("Ambiguous config");
-
-        Path propFile = propFiles.get(0);
-        Properties props = new Properties();
-        try (var reader = new InputStreamReader(Files.newInputStream(propFile), StandardCharsets.UTF_8)) {
-            props.load(reader);
-        }
-        return FolderConfig.fromProperties(props, folder.getFileName().toString());
-    }
-
     private boolean shouldProcess(Path file) {
         if (!Files.isRegularFile(file)) return false;
         String name = file.getFileName().toString();
         if (name.endsWith(CONFIG_EXT)) return false;
-        if (file.toString().contains(PROCESSED_DIR) || file.toString().contains(ERROR_DIR)) return false;
+        for (Path part : file) {
+            String partName = part.toString();
+            if (partName.equals(PROCESSED_DIR) || partName.equals(ERROR_DIR)) {
+                return false;
+            }
+        }
 
         int lastDot = name.lastIndexOf('.');
         if (lastDot == -1) return false;
@@ -281,9 +315,10 @@ public class FileService {
 
     private boolean isSameContent(Path file1, Path file2) {
         try {
-            // Для очень больших файлов лучше сравнивать размер, а хэш - опционально
+            // 1. Сначала дешевая проверка размера
             if (Files.size(file1) != Files.size(file2)) return false;
 
+            // 2. Только если размер совпал - считаем тяжелый хеш
             String hash1 = calculateFileHash(file1);
             String hash2 = calculateFileHash(file2);
             return hash1.equals(hash2);

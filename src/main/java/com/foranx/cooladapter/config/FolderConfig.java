@@ -1,5 +1,7 @@
 package com.foranx.cooladapter.config;
 
+import java.nio.charset.Charset;
+import java.nio.charset.UnsupportedCharsetException;
 import java.util.*;
 import java.util.logging.Logger;
 
@@ -14,7 +16,8 @@ public record FolderConfig(
         String fallbackLogFileName,
         Map<String, String> handlers,
         String tableVersion,
-        int gtsControl
+        int gtsControl,
+        Charset charset
 ) {
     private static final Logger log = Logger.getLogger(FolderConfig.class.getName());
 
@@ -32,6 +35,8 @@ public record FolderConfig(
     private static final String PROP_FALLBACK_LOG_FILE_NAME = "fallbackLogFileName";
     private static final String PROP_TABLE_VERSION = "tableVersion";
     private static final String HANDLER_PREFIX = "handler.";
+    private static final String PROP_CHARSET = "charset";
+    private static final String DEFAULT_CHARSET = "UTF-8";
 
     private static final String DEFAULT_FIELD_DELIMITER = ",";
     private static final String DEFAULT_RECORD_DELIMITER = "\n";
@@ -98,6 +103,16 @@ public record FolderConfig(
                 props.getProperty(PROP_GTS_CONTROL, DEFAULT_GTS_CONTROL)
         );
 
+        String charsetStr = props.getProperty(PROP_CHARSET, DEFAULT_CHARSET);
+        Charset charset;
+        try {
+            charset = Charset.forName(charsetStr);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "FolderConfig: Invalid charset '" + charsetStr + "'. Supported examples: UTF-8, Windows-1251, ISO-8859-1", e
+            );
+        }
+
         return new FolderConfig(
                 isFirstLineHeader,
                 subValueDelimiter,
@@ -109,7 +124,8 @@ public record FolderConfig(
                 fallbackLogFileName,
                 handlers,
                 tableVersion,
-                gtsControl
+                gtsControl,
+                charset
         );
     }
 

@@ -59,9 +59,13 @@ public class DirectoryWatcher {
         Files.walkFileTree(start, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                if (dir.getFileName().toString().equals(".processed")) {
+                String dirName = dir.getFileName().toString();
+
+                // ИГНОРИРУЕМ И .processed, И .error
+                if (dirName.equals(".processed") || dirName.equals(".error")) {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
+
                 registerDirectory(dir);
                 return FileVisitResult.CONTINUE;
             }
