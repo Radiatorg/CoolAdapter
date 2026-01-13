@@ -1,7 +1,6 @@
 package com.foranx.cooladapter.config;
 
 import java.nio.charset.Charset;
-import java.nio.charset.UnsupportedCharsetException;
 import java.util.*;
 import java.util.logging.Logger;
 
@@ -15,6 +14,8 @@ public record FolderConfig(
         String logFileName,
         String fallbackLogFileName,
         Map<String, String> handlers,
+        Map<String, String> handlerPaths,
+        String defaultHandlerPath,
         String tableVersion,
         int gtsControl,
         Charset charset
@@ -34,7 +35,11 @@ public record FolderConfig(
     private static final String PROP_LOG_FILE_NAME = "logFileName";
     private static final String PROP_FALLBACK_LOG_FILE_NAME = "fallbackLogFileName";
     private static final String PROP_TABLE_VERSION = "tableVersion";
+
     private static final String HANDLER_PREFIX = "handler.";
+    private static final String HANDLER_PATH_SUFFIX = ".path";
+    private static final String PROP_GLOBAL_HANDLER_PATH = "handler.path";
+
     private static final String PROP_CHARSET = "charset";
     private static final String DEFAULT_CHARSET = "UTF-8";
 
@@ -97,7 +102,31 @@ public record FolderConfig(
                 PROP_TABLE_VERSION
         );
 
-        Map<String, String> handlers = parseHandlers(props);
+        Map<String, String> handlers = new LinkedHashMap<>();
+        Map<String, String> handlerPaths = new HashMap<>();
+        String defaultHandlerPath = props.getProperty(PROP_GLOBAL_HANDLER_PATH);
+
+        for (String key : props.stringPropertyNames()) {
+            if (key.startsWith(HANDLER_PREFIX)) {
+                String value = props.getProperty(key);
+                if (value == null || value.isBlank()) continue;
+
+                if (key.equals(PROP_GLOBAL_HANDLER_PATH)) {
+                    continue;
+                }
+
+                if (key.endsWith(HANDLER_PATH_SUFFIX)) {
+                    String handlerKey = key.substring(0, key.length() - HANDLER_PATH_SUFFIX.length());
+                    handlerPaths.put(handlerKey, value);
+                } else {
+                    handlers.put(key, value);
+                }
+            }
+        }
+
+        if (handlers.isEmpty()) {
+            handlers.put(HANDLER_PREFIX + "default", DEFAULT_HANDLER);
+        }
 
         int gtsControl = parseGtsControl(
                 props.getProperty(PROP_GTS_CONTROL, DEFAULT_GTS_CONTROL)
@@ -122,7 +151,9 @@ public record FolderConfig(
                 headers,
                 logFileName,
                 fallbackLogFileName,
-                handlers,
+                Collections.unmodifiableMap(handlers),
+                Collections.unmodifiableMap(handlerPaths),
+                defaultHandlerPath,
                 tableVersion,
                 gtsControl,
                 charset
@@ -156,25 +187,6 @@ public record FolderConfig(
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList();
-    }
-
-    private static Map<String, String> parseHandlers(Properties props) {
-        Map<String, String> handlers = new LinkedHashMap<>();
-
-        for (String key : props.stringPropertyNames()) {
-            if (key.startsWith(HANDLER_PREFIX)) {
-                handlers.put(key, props.getProperty(key));
-            }
-        }
-
-        if (handlers.isEmpty()) {
-            handlers.put(
-                    HANDLER_PREFIX + "default",
-                    DEFAULT_HANDLER
-            );
-        }
-
-        return Collections.unmodifiableMap(handlers);
     }
 
     private static String normalizeDelimiter(String value) {

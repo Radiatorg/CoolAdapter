@@ -6,7 +6,6 @@ import com.foranx.cooladapter.handler.ValueHandler;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -24,14 +23,12 @@ public class ParserService {
             String line;
             int lineNum = 0;
 
-            // Если первая строка - хедер, читаем её для проверки или пропускаем
             if (config.isFirstLineHeader()) {
                 String headerLine = reader.readLine();
                 lineNum++;
-                if (headerLine == null) return; // Пустой файл - ок или ошибка?
+                if (headerLine == null) return;
 
-                // Если заголовки берутся из файла, нужно посчитать их количество тут
-                if (expectedColumns == 0) { // Если в конфиге заголовков нет
+                if (expectedColumns == 0) {
                     expectedColumns = headerLine.split(fieldDelimPattern, -1).length;
                 }
             }
@@ -40,7 +37,6 @@ public class ParserService {
                 lineNum++;
                 if (line.trim().isEmpty()) continue;
 
-                // -1 в split важен, чтобы считать пустые хвосты (,,,)
                 String[] fields = line.split(fieldDelimPattern, -1);
 
                 if (fields.length != expectedColumns) {
@@ -53,20 +49,15 @@ public class ParserService {
         }
     }
 
-    /**
-     * Читает файл построчно и вызывает rowProcessor для каждой распарсенной строки.
-     * Память не забивается, так как данные не копятся.
-     */
     public static void parseStream(Path file, FolderConfig config, Consumer<Map<String, Object>> rowProcessor) throws IOException {
 
         try (BufferedReader reader = Files.newBufferedReader(file, config.charset())) {
 
             List<String> headers;
 
-            // 1. Читаем заголовок
             if (config.isFirstLineHeader()) {
                 String headerLine = reader.readLine();
-                if (headerLine == null) return; // Пустой файл
+                if (headerLine == null) return;
 
                 String[] headerParts = headerLine.split(Pattern.quote(config.fieldDelimiter()));
                 headers = new ArrayList<>();
@@ -77,7 +68,6 @@ public class ParserService {
                 headers = config.headers();
             }
 
-            // Предкомпиляция разделителей для скорости
             String multiDelim = config.multiValueDelimiter();
             String subDelim = config.subValueDelimiter();
             boolean hasMultiDelim = multiDelim != null && !multiDelim.isEmpty();
@@ -87,17 +77,14 @@ public class ParserService {
             String multiDelimPattern = hasMultiDelim ? Pattern.quote(multiDelim) : null;
             String subDelimPattern = hasSubDelim ? Pattern.quote(subDelim) : null;
 
-            // Кэшируем хендлеры, чтобы не искать их на каждой строке
             Map<String, ValueHandler> activeHandlers = resolveHandlers(headers, config);
 
             String line;
-            // 2. Бежим по строкам
             while ((line = reader.readLine()) != null) {
                 if (line.trim().isEmpty()) continue;
 
                 String[] fields = line.split(fieldDelimPattern, -1);
 
-                // LinkedHashMap сохраняет порядок полей, что важно для OFS
                 Map<String, Object> rowData = new LinkedHashMap<>();
 
                 for (int colIndex = 0; colIndex < headers.size(); colIndex++) {
@@ -106,7 +93,6 @@ public class ParserService {
 
                     Object processedValue;
 
-                    // Логика Multi/Sub values
                     if (hasMultiDelim && rawValue.contains(multiDelim)) {
                         List<List<String>> multiValueList = new ArrayList<>();
                         String[] multiParts = rawValue.split(multiDelimPattern);
@@ -124,7 +110,6 @@ public class ParserService {
                         processedValue = rawValue;
                     }
 
-                    // Применяем Handler тут же, к конкретной ячейке
                     if (activeHandlers.containsKey(headerName)) {
                         processedValue = activeHandlers.get(headerName).handle(processedValue);
                     }
@@ -132,7 +117,6 @@ public class ParserService {
                     rowData.put(headerName, processedValue);
                 }
 
-                // 3. Отдаем готовую строку на обработку и ЗАБЫВАЕМ её
                 rowProcessor.accept(rowData);
             }
         }
@@ -141,11 +125,22 @@ public class ParserService {
     private static Map<String, ValueHandler> resolveHandlers(List<String> headers, FolderConfig config) {
         Map<String, ValueHandler> result = new HashMap<>();
         Map<String, String> handlerConfigs = config.handlers();
+        Map<String, String> handlerPaths = config.handlerPaths();
+        String globalPath = config.defaultHandlerPath();
 
         for (String header : headers) {
-            String handlerClassName = handlerConfigs.get("handler." + header);
+            String handlerKey = "handler." + header;
+            String handlerClassName = handlerConfigs.get(handlerKey);
+
             if (handlerClassName != null) {
-                ValueHandler handler = HandlerFactory.getHandler(handlerClassName);
+                String jarPath = handlerPaths.get(handlerKey);
+
+                if (jarPath == null || jarPath.isBlank()) {
+                    jarPath = globalPath;
+                }
+
+                ValueHandler handler = HandlerFactory.getHandler(handlerClassName, jarPath);
+
                 if (handler != null) {
                     result.put(header, handler);
                 }
