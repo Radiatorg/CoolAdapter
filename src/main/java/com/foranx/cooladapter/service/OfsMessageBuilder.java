@@ -17,65 +17,93 @@ public class OfsMessageBuilder {
         this.appConfig = appConfig;
     }
 
-    // Метод теперь принимает ОДНУ строку данных
     public String buildSingleMessage(Map<String, Object> rowData) {
-        if (rowData.isEmpty()) return null;
+        if (rowData == null || rowData.isEmpty()) return null;
 
-        // Получаем ключи (headers) из самой map, так как LinkedHashMap сохраняет порядок
         List<String> headers = rowData.keySet().stream().toList();
         if (headers.isEmpty()) return null;
 
-        String idHeader = headers.get(0);
-        Object idValue = rowData.get(idHeader);
+        String idHeader = headers.getFirst();
+        Object idValueObj = rowData.get(idHeader);
+        String idValue = (idValueObj != null) ? idValueObj.toString() : "";
 
-        // Формируем заголовок сообщения: VERSION/I/PROCESS,USER/PASS,ID
+        String operation = folderConfig.tableVersion();
+        String options = "/I/PROCESS";
+
+        String password = new String(appConfig.credentials().password());
+        String userInfo = appConfig.credentials().username() + "/" + password;
+
         String prefix = String.join(",",
-                folderConfig.tableVersion(),
-                folderConfig.tableVersion() + "/I/PROCESS",
-                appConfig.credentials().username() + "/******",
-                String.valueOf(idValue)
+                operation,
+                options,
+                userInfo,
+                idValue
         );
 
         StringJoiner body = new StringJoiner(",");
 
-        // Пропускаем ID (индекс 0), идем по полям данных
         for (int h = 1; h < headers.size(); h++) {
             String headerName = headers.get(h);
             Object valueObj = rowData.get(headerName);
             appendFieldData(body, headerName, valueObj);
         }
 
-        return prefix + "," + body.toString();
+        return prefix + "," + body;
     }
 
     private void appendFieldData(StringJoiner joiner, String headerName, Object value) {
+        if (value == null) return;
+
         if (value instanceof List<?> list) {
-            processListValue(joiner, headerName, list);
+            processListValue(joiner, headerName, list, 1);
         } else {
-            joiner.add(headerName + "=" + value);
+            String strVal = value.toString();
+            if (!strVal.isEmpty()) {
+                joiner.add(headerName + "=" + escapeOfsData(strVal));
+            }
         }
     }
 
-    private void processListValue(StringJoiner joiner, String headerName, List<?> list) {
+    private void processListValue(StringJoiner joiner, String headerName, List<?> list, int multiIndex) {
         if (list.isEmpty()) return;
 
-        if (list.get(0) instanceof List) {
-            // MultiValue
-            @SuppressWarnings("unchecked")
-            List<List<String>> multiValueList = (List<List<String>>) list;
-            for (int m = 0; m < multiValueList.size(); m++) {
-                List<String> subValues = multiValueList.get(m);
-                for (int s = 0; s < subValues.size(); s++) {
-                    joiner.add(String.format("%s:%d:%d=%s", headerName, m + 1, s + 1, subValues.get(s)));
+        Object first = list.getFirst();
+
+        if (first instanceof List) {
+            for (int i = 0; i < list.size(); i++) {
+                Object item = list.get(i);
+                if (item instanceof List<?> subList) {
+                    processSubValues(joiner, headerName, subList, i + 1);
                 }
             }
         } else {
-            // SubValue
-            @SuppressWarnings("unchecked")
-            List<String> subValueList = (List<String>) list;
-            for (int s = 0; s < subValueList.size(); s++) {
-                joiner.add(String.format("%s:%d=%s", headerName, s + 1, subValueList.get(s)));
+
+            for (int i = 0; i < list.size(); i++) {
+                Object item = list.get(i);
+                if (item == null) continue;
+
+                if (item instanceof List) {
+                    processSubValues(joiner, headerName, (List<?>) item, i + 1);
+                } else {
+                    String val = item.toString();
+                    joiner.add(String.format("%s:%d=%s", headerName, i + 1, escapeOfsData(val)));
+                }
             }
         }
+    }
+
+    private void processSubValues(StringJoiner joiner, String headerName, List<?> subList, int multiIndex) {
+        for (int s = 0; s < subList.size(); s++) {
+            Object item = subList.get(s);
+            if (item != null) {
+                String val = item.toString();
+                joiner.add(String.format("%s:%d:%d=%s", headerName, multiIndex, s + 1, escapeOfsData(val)));
+            }
+        }
+    }
+
+    private String escapeOfsData(String input) {
+        if (input == null) return "";
+        return input.replace(",", " ");
     }
 }

@@ -5,23 +5,27 @@ import com.foranx.cooladapter.config.AppConfigLoader;
 import com.foranx.cooladapter.service.FileService;
 import com.foranx.cooladapter.util.LoggingUtil;
 import com.foranx.cooladapter.watcher.DirectoryWatcher;
-
 import com.foranx.cooladapter.watcher.FileStabilityMonitor;
+
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.annotation.WebListener;
+
 import java.io.InputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 @WebListener
 public class AppStartupListener implements ServletContextListener {
 
     private static final Logger log = Logger.getLogger(AppStartupListener.class.getName());
+
     private DirectoryWatcher watcher;
     private FileStabilityMonitor monitor;
     private ExecutorService processingPool;
+    private FileService fileService;
 
     @Override
     public void contextInitialized(ServletContextEvent sce) {
@@ -36,7 +40,7 @@ public class AppStartupListener implements ServletContextListener {
             LoggingUtil.configure(config.logFolder(), config.logLevel().getName());
             config.logConfiguration();
 
-            FileService fileService = new FileService(config);
+            this.fileService = new FileService(config);
 
             processingPool = Executors.newFixedThreadPool(10);
             monitor = new FileStabilityMonitor(config, fileService, processingPool);
@@ -48,7 +52,7 @@ public class AppStartupListener implements ServletContextListener {
             log.info("CoolAdapter started successfully.");
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.log(Level.SEVERE, "CRITICAL: Failed to start application", e);
             throw new RuntimeException("Failed to start application", e);
         }
     }
@@ -57,21 +61,19 @@ public class AppStartupListener implements ServletContextListener {
     public void contextDestroyed(ServletContextEvent sce) {
         log.info("Stopping CoolAdapter...");
 
-        if (watcher != null) {
-            watcher.stop();
-            log.info("DirectoryWatcher stopped.");
-        }
-
-        if (monitor != null) {
-            monitor.stop();
-            log.info("FileStabilityMonitor stopped.");
-        }
+        if (watcher != null) watcher.stop();
+        if (monitor != null) monitor.stop();
 
         if (processingPool != null) {
-            processingPool.shutdown();
+            processingPool.shutdownNow();
         }
 
+        if (fileService != null) {
+            fileService.close();
+            log.info("FileService (ActiveMQ connections) closed.");
+        }
+
+        com.foranx.cooladapter.handler.HandlerFactory.closeAll();
         LoggingUtil.closeHandlers();
-        System.out.println("CoolAdapter logging handlers closed.");
     }
 }
