@@ -11,13 +11,21 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class ParserService {
+
+    private static String removeBom(String line) {
+        if (line != null && !line.isEmpty() && line.charAt(0) == '\uFEFF') {
+            return line.substring(1);
+        }
+        return line;
+    }
 
     public static void validateStructure(Path file, FolderConfig config) throws IOException {
         try (BufferedReader reader = Files.newBufferedReader(file, config.charset())) {
 
-            String fieldDelimPattern = Pattern.quote(config.fieldDelimiter());
+            Pattern fieldPattern = Pattern.compile(Pattern.quote(config.fieldDelimiter()));
             int expectedColumns = config.headers().size();
 
             String line;
@@ -25,19 +33,25 @@ public class ParserService {
 
             if (config.isFirstLineHeader()) {
                 String headerLine = reader.readLine();
+                headerLine = removeBom(headerLine);
                 lineNum++;
                 if (headerLine == null) return;
-
                 if (expectedColumns == 0) {
-                    expectedColumns = headerLine.split(fieldDelimPattern, -1).length;
+                    expectedColumns = fieldPattern.split(headerLine, -1).length;
                 }
             }
 
-            while ((line = reader.readLine()) != null) {
-                lineNum++;
-                if (line.trim().isEmpty()) continue;
+            boolean isFirstLineOfData = !config.isFirstLineHeader();
 
-                String[] fields = line.split(fieldDelimPattern, -1);
+            while ((line = reader.readLine()) != null) {
+                if (isFirstLineOfData) {
+                    line = removeBom(line);
+                    isFirstLineOfData = false;
+                }
+                lineNum++;
+                if (line.isBlank()) continue;
+
+                String[] fields = fieldPattern.split(line, -1);
 
                 if (fields.length != expectedColumns) {
                     throw new IllegalStateException(String.format(
@@ -53,14 +67,15 @@ public class ParserService {
 
         try (BufferedReader reader = Files.newBufferedReader(file, config.charset())) {
 
+            Pattern fieldPattern = Pattern.compile(Pattern.quote(config.fieldDelimiter()));
             List<String> headers;
 
             if (config.isFirstLineHeader()) {
                 String headerLine = reader.readLine();
+                headerLine = removeBom(headerLine);
                 if (headerLine == null) return;
-
-                String[] headerParts = headerLine.split(Pattern.quote(config.fieldDelimiter()));
-                headers = new ArrayList<>();
+                String[] headerParts = fieldPattern.split(headerLine);
+                headers = new ArrayList<>(headerParts.length);
                 for (String h : headerParts) {
                     headers.add(h.trim());
                 }
@@ -73,45 +88,65 @@ public class ParserService {
             boolean hasMultiDelim = multiDelim != null && !multiDelim.isEmpty();
             boolean hasSubDelim = subDelim != null && !subDelim.isEmpty();
 
-            String fieldDelimPattern = Pattern.quote(config.fieldDelimiter());
-            String multiDelimPattern = hasMultiDelim ? Pattern.quote(multiDelim) : null;
-            String subDelimPattern = hasSubDelim ? Pattern.quote(subDelim) : null;
+            Pattern multiPattern = hasMultiDelim ? Pattern.compile(Pattern.quote(multiDelim)) : null;
+            Pattern subPattern = hasSubDelim ? Pattern.compile(Pattern.quote(subDelim)) : null;
+
+            String customRecordDelim = config.recordDelimiter().trim();
+            boolean needsRecordTrim = !customRecordDelim.isEmpty() && !customRecordDelim.equals("\n") && !customRecordDelim.equals("\r\n");
 
             Map<String, ValueHandler> activeHandlers = resolveHandlers(headers, config);
 
             String line;
+            boolean isFirstLineOfData = !config.isFirstLineHeader();
+
             while ((line = reader.readLine()) != null) {
-                if (line.trim().isEmpty()) continue;
 
-                String[] fields = line.split(fieldDelimPattern, -1);
+                if (isFirstLineOfData) {
+                    line = removeBom(line);
+                    isFirstLineOfData = false;
+                }
 
-                Map<String, Object> rowData = new LinkedHashMap<>();
+                if (line.isBlank()) continue;
+
+                String[] fields = fieldPattern.split(line, -1);
+                Map<String, Object> rowData = new LinkedHashMap<>(headers.size());
 
                 for (int colIndex = 0; colIndex < headers.size(); colIndex++) {
                     String headerName = headers.get(colIndex);
-                    String rawValue = (colIndex < fields.length) ? fields[colIndex].trim() : "";
+                    String rawValue = (colIndex < fields.length) ? fields[colIndex] : "";
+
+                    if (colIndex == fields.length - 1 && needsRecordTrim) {
+                        if (rawValue.endsWith(customRecordDelim)) {
+                            rawValue = rawValue.substring(0, rawValue.length() - customRecordDelim.length());
+                        }
+                    }
+
+                    rawValue = rawValue.trim();
 
                     Object processedValue;
 
                     if (hasMultiDelim && rawValue.contains(multiDelim)) {
-                        List<List<String>> multiValueList = new ArrayList<>();
-                        String[] multiParts = rawValue.split(multiDelimPattern);
+                        String[] multiParts = multiPattern.split(rawValue);
+                        List<Object> multiValueList = new ArrayList<>(multiParts.length);
+
                         for (String part : multiParts) {
                             if (hasSubDelim && part.contains(subDelim)) {
-                                multiValueList.add(Arrays.asList(part.split(subDelimPattern)));
+                                multiValueList.add(Arrays.asList(subPattern.split(part)));
                             } else {
-                                multiValueList.add(List.of(part));
+                                multiValueList.add(part);
                             }
                         }
                         processedValue = multiValueList;
+
                     } else if (hasSubDelim && rawValue.contains(subDelim)) {
-                        processedValue = Arrays.asList(rawValue.split(subDelimPattern));
+                        processedValue = Arrays.asList(subPattern.split(rawValue));
                     } else {
                         processedValue = rawValue;
                     }
 
-                    if (activeHandlers.containsKey(headerName)) {
-                        processedValue = activeHandlers.get(headerName).handle(processedValue);
+                    ValueHandler handler = activeHandlers.get(headerName);
+                    if (handler != null) {
+                        processedValue = applyHandlerRecursively(handler, processedValue);
                     }
 
                     rowData.put(headerName, processedValue);
@@ -122,8 +157,20 @@ public class ParserService {
         }
     }
 
+    private static Object applyHandlerRecursively(ValueHandler handler, Object value) {
+        if (value == null) return null;
+
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .map(item -> applyHandlerRecursively(handler, item))
+                    .collect(Collectors.toList());
+        }
+
+        return handler.handle(value);
+    }
+
     private static Map<String, ValueHandler> resolveHandlers(List<String> headers, FolderConfig config) {
-        Map<String, ValueHandler> result = new HashMap<>();
+        Map<String, ValueHandler> result = new HashMap<>(headers.size());
         Map<String, String> handlerConfigs = config.handlers();
         Map<String, String> handlerPaths = config.handlerPaths();
         String globalPath = config.defaultHandlerPath();
@@ -134,13 +181,10 @@ public class ParserService {
 
             if (handlerClassName != null) {
                 String jarPath = handlerPaths.get(handlerKey);
-
                 if (jarPath == null || jarPath.isBlank()) {
                     jarPath = globalPath;
                 }
-
                 ValueHandler handler = HandlerFactory.getHandler(handlerClassName, jarPath);
-
                 if (handler != null) {
                     result.put(header, handler);
                 }
